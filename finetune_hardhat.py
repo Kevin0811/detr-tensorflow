@@ -33,12 +33,13 @@ import time
 
 
 def build_model(config):
-    """ Build the model with the pretrained weights
+    """ 
+    Build the model with the pretrained weights
     and add new layers to finetune
     """
     # Load the pretrained model with new heads at the top
     # 3 class : background head and helmet (we exclude here person from the dataset)
-    detr = get_detr_model(config, include_top=False, nb_class=3, weights="detr", num_decoder_layers=6, num_encoder_layers=6)
+    detr = get_detr_model(config, include_top=False, nb_class=3, num_decoder_layers=6, num_encoder_layers=6)
     detr.summary()
     return detr
 
@@ -49,10 +50,8 @@ def run_finetuning(config):
     detr = build_model(config)
 
     # Load the training and validation dataset and exclude the person class
-    train_dt, class_names = load_tfcsv_dataset(
-        config, config.batch_size, augmentation=True, exclude=["person"], ann_file="train/_annotations.csv", img_dir="train")
-    valid_dt, _ = load_tfcsv_dataset(
-        config, 4, augmentation=False, exclude=["person"], ann_file="test/_annotations.csv", img_dir="test")
+    train_dt, class_names = load_tfcsv_dataset(config, config.batch_size, augmentation=True, exclude=["person"], ann_file="_annotations.csv", img_dir="train")
+    valid_dt, _ = load_tfcsv_dataset(config, 4, augmentation=False, exclude=["person"], ann_file="_annotations.csv", img_dir="test")
 
     # Train/finetune the transformers only
     config.train_backbone = tf.Variable(False)
@@ -76,16 +75,20 @@ def run_finetuning(config):
             config.train_transformers.assign(True)
             config.transformers_lr.assign(1e-4)
             config.nlayers_lr.assign(1e-3)
+            print("Training")
 
-        training.eval(detr, valid_dt, config, class_names, evaluation_step=100)
+        #training.eval(detr, valid_dt, config, class_names, evaluation_step=100)
         training.fit(detr, train_dt, optimzers, config, epoch_nb, class_names)
 
 
 if __name__ == "__main__":
 
     physical_devices = tf.config.list_physical_devices('GPU')
-    if len(physical_devices) == 1:
+    if len(physical_devices) > 0:
         tf.config.experimental.set_memory_growth(physical_devices[0], True)
+
+    #Show more info during process
+    tf.config.experimental.set_device_policy('warn')
 
     config = TrainingConfig()
     args = training_config_parser().parse_args()
@@ -96,8 +99,3 @@ if __name__ == "__main__":
         
     # Run training
     run_finetuning(config)
-
-
-
-
-

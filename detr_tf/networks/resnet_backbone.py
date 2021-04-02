@@ -65,7 +65,7 @@ class ResNet101Backbone(ResNetBase):
                                     replace_stride_with_dilation=replace_stride_with_dilation[2],
                                     name='layer4')
 
-
+# for ResNet101Backbone and ResNet50Backbone layers
 class ResidualBlock(tf.keras.Model):
     def __init__(self, num_bottlenecks, dim1, dim2, strides=1,
                  replace_stride_with_dilation=False, **kwargs):

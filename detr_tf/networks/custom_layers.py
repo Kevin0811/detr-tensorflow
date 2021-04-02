@@ -6,7 +6,7 @@ class FrozenBatchNorm2D(tf.keras.layers.Layer):
         super().__init__(**kwargs)
         self.eps = eps
 
-
+    # untrainable Batch Normalization layer
     def build(self, input_shape):
         self.weight = self.add_weight(name='weight', shape=[input_shape[-1]],
                                       initializer=tf.keras.initializers.GlorotUniform(), trainable=False)

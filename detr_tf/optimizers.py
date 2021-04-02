@@ -107,11 +107,12 @@ def setup_optimizers(model, config):
     }
 
 
-def gather_gradient(model, optimizers, total_loss, tape, config, log):
+def gather_gradient(model, optimizers, total_loss, tape, config, log=None):
 
     backbone_variables, transformers_variables, nlayers_variables = get_trainable_variables(model, config)
     trainables_variables = backbone_variables + transformers_variables + nlayers_variables
-
+    
+    # Compute gradient (Derivation) -> tape.gradient
     gradients = tape.gradient(total_loss, trainables_variables)
 
     # Retrieve the gradients from the tap
@@ -126,9 +127,9 @@ def gather_gradient(model, optimizers, total_loss, tape, config, log):
     gradient_steps["nlayers"] = {"gradients": nlayers_gradients}
 
     
-    log.update({"backbone_lr": optimizers["backbone_optimizer"]._serialize_hyperparameter("learning_rate")})
-    log.update({"transformers_lr": optimizers["transformers_optimizer"]._serialize_hyperparameter("learning_rate")})
-    log.update({"nlayers_lr": optimizers["nlayers_optimizer"]._serialize_hyperparameter("learning_rate")})
+    #log.update({"backbone_lr": optimizers["backbone_optimizer"]._serialize_hyperparameter("learning_rate")})
+    #log.update({"transformers_lr": optimizers["transformers_optimizer"]._serialize_hyperparameter("learning_rate")})
+    #log.update({"nlayers_lr": optimizers["nlayers_optimizer"]._serialize_hyperparameter("learning_rate")})
 
     return gradient_steps
 
@@ -160,4 +161,5 @@ def aggregate_grad_and_apply(name, optimizers, gradients, step, config):
 
         # Apply gradient if no gradient aggregate or if we finished gathering gradient oversteps
         if gradient_aggregate is None or (step+1) %  gradient_aggregate == 0:
+            # Update weights -> apply_gradients !!!
             optimizers[optimizer_name].apply_gradients(zip(optimizers[gradient_name], optimizers[variables_name]))

@@ -46,7 +46,7 @@ class TrainingConfig():
         self.data_dir, self.img_dir, self.ann_dir, self.ann_file = None, None, None, None
         self.data = DataConfig(data_dir=None, img_dir=None, ann_file=None, ann_dir=None)
         self.background_class = 0
-        self.image_size = 376, 672
+        self.image_size = 212, 256
 
         # What to train
         self.train_backbone = False
@@ -58,7 +58,7 @@ class TrainingConfig():
         self.batch_size = 1
         self.gradient_norm_clipping = 0.1
         # Batch aggregate before to backprop
-        self.target_batch = 1
+        self.target_batch = 8
 
         # Learning rate
         # Set as tf.Variable so that the variable can be update during the training while

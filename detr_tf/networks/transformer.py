@@ -50,7 +50,10 @@ class Transformer(tf.keras.Model):
                           pos_encoding=pos_encoding, query_encoding=query_encoding,
                           training=training)
 
-        hs = tf.transpose(hs, [0, 2, 1, 3])
+        # hs = [Layer number, query dim, RGB channel, model dim] = [6, 100, 3, 256]
+        hs = tf.transpose(hs, [0, 2, 1, 3]) 
+        # hs = [Layer number, RGB channel, query dim, model dim] = [6, 3, 100, 256]
+
         memory = tf.transpose(memory, [1, 0, 2])
         memory = tf.reshape(memory, [batch_size, rows, cols, self.model_dim])
 
@@ -314,6 +317,7 @@ class MultiHeadAttention(tf.keras.layers.Layer):
         WV = tf.reshape(WV, [source_len, batch_size * self.num_heads, self.head_dim])
         WV = tf.transpose(WV, [1, 0, 2])
         
+        # output weight for multi-head
         attn_output_weights = tf.matmul(WQ, WK, transpose_b=True)
 
         if attn_mask is not None:

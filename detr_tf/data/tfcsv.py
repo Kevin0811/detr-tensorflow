@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import imageio
 import os
+from os.path import expanduser
 
 from .import processing
 from .transformation import detr_transform
@@ -11,7 +12,7 @@ from .. import bbox
 
 def load_data_from_index(index, class_names, filenames, anns, config, augmentation, img_dir):
     # Open the image
-    image = imageio.imread(os.path.join(config.data.data_dir, img_dir, filenames[index]))
+    image = imageio.imread(os.path.join(expanduser("~"), "Desktop", "detr-tensorflow","detr_tf", "data","hardhat", img_dir, filenames[index]))
     # Select all the annotatiom (bbox and class) on this image
     image_anns = anns[anns["filename"] == filenames[index]]    
     
@@ -42,7 +43,7 @@ def load_tfcsv_dataset(config, batch_size, augmentation=False, exclude=[], ann_d
     ann_file = config.data.ann_file if ann_file is None else ann_file
     img_dir = config.data.img_dir if img_dir is None else img_dir
 
-    anns = pd.read_csv(os.path.join(config.data.data_dir, ann_file))
+    anns = pd.read_csv(os.path.join(expanduser("~"), "Desktop", "detr-tensorflow","detr_tf", "data","hardhat", img_dir, ann_file))
     for name  in exclude:
         anns = anns[anns["class"] != name]
 
@@ -75,3 +76,46 @@ def load_tfcsv_dataset(config, batch_size, augmentation=False, exclude=[], ann_d
     
     return dataset, class_names
 
+def read_image(filename, label):
+    # 讀取並解碼圖片
+    image_string = tf.io.read_file(filename)
+    image_decoded = tf.image.decode_png(image_string, channels=3)
+    # 轉換型別
+    image_std = tf.image.per_image_standardization(image_decoded)
+    image_converted = tf.cast(image_std, tf.float32)
+    #print("image shape\n" + str(image_decoded))
+
+    return image_converted, label
+
+def load_text_file(file_name):
+    # current_path = os.getcwd()
+    path = 'D:\\Dataset\\Body Data\\K2HPD'
+    file_path = os.path.join(path, file_name)
+    f = open(file_path, 'r') # 開啟並讀取檔案
+    lines = f.readlines() # 讀取檔案內容的每一行文字為陣列
+    image_list = list()
+    skeleton_list = list()
+
+    for line in lines:
+        line = line.split()
+        image_name = line[0]
+        image_path = os.path.join(path, 'image', image_name)
+        image_list.append(image_path)
+        skeleton_xy = line[1]
+        skeleton_xy = skeleton_xy.split(',')
+        skeletons = list()
+        for coor in range(0, 29, 2):
+            skeletons.append([float(skeleton_xy[coor]),float(skeleton_xy[coor+1])])
+        skeleton_list.append(skeletons)
+    f.close() # 關閉檔案
+    return image_list, skeleton_list
+
+def load_k4b_dataset(batch_size, file_name):
+    image_list, skeleton_list = load_text_file(file_name)
+    dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list)))
+    dataset = dataset.map(read_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    dataset = dataset.shuffle(1000, reshuffle_each_iteration=False)
+    # Batch images
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+
+    return dataset

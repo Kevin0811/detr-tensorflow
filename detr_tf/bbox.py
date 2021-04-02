@@ -18,7 +18,7 @@ def bbox_xcycwh_to_x1y1x2y2(bbox_xcycwh: np.array):
         @img_size (height, width)
     """
     bbox_x1y1x2y2 = np.zeros_like((bbox_xcycwh))
-    bbox_x1y1x2y2[:,0] = bbox_xcycwh[:,0] - (bbox_xcycwh[:,2] / 2)
+    bbox_x1y1x2y2c= bbox_xcycwh[:,0] - (bbox_xcycwh[:,2] / 2)
     bbox_x1y1x2y2[:,2] = bbox_xcycwh[:,0] + (bbox_xcycwh[:,2] / 2)
     bbox_x1y1x2y2[:,1] = bbox_xcycwh[:,1] - (bbox_xcycwh[:,3] / 2)
     bbox_x1y1x2y2[:,3] = bbox_xcycwh[:,1] + (bbox_xcycwh[:,3] / 2)

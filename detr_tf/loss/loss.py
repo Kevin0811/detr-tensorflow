@@ -33,6 +33,35 @@ def get_losses(m_outputs, t_bbox, t_class, config):
 
     return total_loss, losses
 
+def new_get_losses(m_outputs, skeleton_lable, config):
+    losses = get_coor_losses(m_outputs['pred_pos'], skeleton_lable, config)
+    # Get auxiliary loss for each auxiliary output
+    if "aux" in m_outputs:
+        for a, aux_m_outputs in enumerate(m_outputs["aux"]):
+            aux_losses = get_coor_losses(aux_m_outputs['pred_pos'], skeleton_lable, config)
+            losses = losses + aux_losses
+    return losses
+
+def get_coor_losses(outputs, skeleton_lable, config):
+    #print('outputs \n' + str(outputs)+'\n')
+    #print('skeleton \n' + str(skeleton_lable)+'\n')
+
+    sub_distances = tf.math.subtract(outputs, skeleton_lable)
+    
+    sq_distances = tf.math.square(sub_distances)
+    #print('sq_distances \n' + str(sq_distances)+'\n')
+    sum_pool = 2 * tf.keras.layers.AveragePooling1D(pool_size = 2, strides = 2, padding = "valid", data_format='channels_first')(sq_distances)
+    #print('sum_pool \n' + str(sum_pool)+'\n')
+    # take the square root to get the distance
+    dists = tf.math.sqrt(sum_pool)
+    #print('dists \n' + str(dists)+'\n')
+    reshape_dists = tf.reshape(dists,[config.batch_size, 15])
+    # take the mean of the distances
+    mean_dist = tf.reduce_mean(reshape_dists, axis=1, keepdims=False)
+    #print('mean_dist \n' + str(mean_dist)+'\n')
+    total_loss = tf.reduce_sum(mean_dist, axis=0)
+    #print(tf.print(total_loss))
+    return total_loss
 
 def loss_labels(p_bbox, p_class, t_bbox, t_class, t_indices, p_indices, t_selector, p_selector, background_class=0):
 

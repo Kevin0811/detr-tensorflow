@@ -17,7 +17,7 @@ from .weights import load_weights
 
 
 class DETR(tf.keras.Model):
-    def __init__(self, num_classes=92, num_queries=100,
+    def __init__(self, num_classes=92, num_queries=15,
                  backbone=None,
                  pos_encoder=None,
                  transformer=None,
@@ -28,7 +28,9 @@ class DETR(tf.keras.Model):
         super().__init__(**kwargs)
         self.num_queries = num_queries
 
-        self.backbone = ResNet50Backbone(name='backbone')
+        self.backbone = backbone or ResNet50Backbone(name='backbone')
+        #self.backbone.summary()
+
         self.transformer = transformer or Transformer(
                 num_encoder_layers=num_encoder_layers,
                 num_decoder_layers=num_decoder_layers,
@@ -37,9 +39,9 @@ class DETR(tf.keras.Model):
         )
         
         self.model_dim = self.transformer.model_dim
-
+        # Miss name here??
         self.pos_encoder = pos_encoder or PositionEmbeddingSine(
-            num_pos_features=self.model_dim // 2, normalize=True)
+            num_pos_features=self.model_dim // 2, normalize=True, name='position_embedding_sine')
 
         self.input_proj = tf.keras.layers.Conv2D(self.model_dim, kernel_size=1, name='input_proj')
 
@@ -63,15 +65,23 @@ class DETR(tf.keras.Model):
         return masks
 
     def call(self, inp, training=False, post_process=False):
+        # separate input image and position mask
         x, masks = inp
+        # Part 1
+        # input image go through backbone(ResNet) return feature map
         x = self.backbone(x, training=training)
+        # rescale masks shape to fit feature map
         masks = self.downsample_masks(masks, x)
-
+        # add position mask into feature map
+        # Use in "query = key = source + pos_encoding" inside Transformer EncoderLayer
         pos_encoding = self.pos_encoder(masks)
 
+        # Part 2
+        # input 
         hs = self.transformer(self.input_proj(x), masks, self.query_embed(None),
                               pos_encoding, training=training)[0]
 
+        # Part 3
         outputs_class = self.class_embed(hs)
 
         box_ftmps = self.activation(self.bbox_embed_linear1(hs))
@@ -88,10 +98,13 @@ class DETR(tf.keras.Model):
 
     def build(self, input_shape=None, **kwargs):
         if input_shape is None:
+            print("Input shape is None before build")
             input_shape = [(None, None, None, 3), (None, None, None)]
         super().build(input_shape, **kwargs)
 
+#Type 2 model (Class and Position with FFN-Dense)
 def add_heads_nlayers(config, detr, nb_class):
+    # Type 2 - Input
     image_input = tf.keras.Input((None, None, 3))
     # Setup the new layers
     cls_layer = tf.keras.layers.Dense(nb_class, name="cls_layer")
@@ -102,7 +115,11 @@ def add_heads_nlayers(config, detr, nb_class):
     ], name="pos_layer")
     config.add_nlayers([cls_layer, pos_layer])
 
+    # Type 2 - Part 2
     transformer_output = detr(image_input)
+    # = hs = [Layer number, RGB channel, query dim, model dim] = [6, 3, 100, 256]
+
+    # Type 2 - Part 3
     cls_preds = cls_layer(transformer_output)
     pos_preds = pos_layer(transformer_output)
 
@@ -114,8 +131,8 @@ def add_heads_nlayers(config, detr, nb_class):
     return n_detr
 
 def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_backbone=False, num_decoder_layers=6, num_encoder_layers=6):
-    """ Get the DETR model
-
+    """ 
+    Get the DETR model
     Parameters
     ----------
     include_top: bool
@@ -134,15 +151,18 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
         laod the weights from pytorch, set this variable to True.
     """
     detr = DETR(num_decoder_layers=num_decoder_layers, num_encoder_layers=num_encoder_layers)
-
+    # load weights
     if weights is not None:
+        print("DETR load Weights \n")
         load_weights(detr, weights)
-
+    # Type 1,3 - Input
     image_input = tf.keras.Input((None, None, 3))
 
+    
     # Backbone
-    if not tf_backbone:
+    if not tf_backbone: # tf_backbone default is False
         backbone = detr.get_layer("backbone")
+        print("Using Custom Backbone (ResNet50)")
     else:
         config.normalized_method = "tf_resnet"
         backbone = tf.keras.applications.ResNet50(include_top=False, weights="imagenet", input_shape=(None, None, 3))
@@ -167,22 +187,68 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
     bbox_embed_linear3 = detr.get_layer('bbox_embed_2')
     activation = detr.get_layer("re_lu")
 
+    image_shape = tf.repeat([[212, 256]], 15, axis=0, name=None)
+    image_shape = tf.repeat([image_shape], config.batch_size, axis=0, name=None)
+    image_shape = tf.cast(image_shape, dtype=tf.float32, name=None)
+
+    # Type 1 - Part 1
     x = backbone(image_input)
 
+    # create mask object for position embedding
     masks = tf.zeros((tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2]), tf.bool)
     pos_encoding = position_embedding_sine(masks)
 
+    # Type 1 - Part 2
     hs = transformer(input_proj(x), masks, query_embed(None), pos_encoding)[0]
+    # transformer output = [hs, memory]
+    # transformer output [0] = hs
 
+    # the variable detr here has been overwritten
     detr = tf.keras.Model(image_input, hs, name="detr")
-    if include_top is False and nb_class is None:
-        return detr
-    elif include_top is False and nb_class is not None:
-        return add_heads_nlayers(config, detr, nb_class) 
+    #detr.summary()
 
+    if include_top is False and nb_class is None:
+
+        #Type 1 model
+        pos_layer = tf.keras.models.Sequential([
+            tf.keras.layers.Dense(256, activation="relu"),
+            tf.keras.layers.Dense(256, activation="relu"),
+            tf.keras.layers.Dense(2, activation="sigmoid"),
+        ], name="custom_pos_layer")
+
+        config.add_nlayers([pos_layer])
+
+        transformer_output = detr(image_input)
+
+        #print(transformer_output)
+
+        pos_preds = pos_layer(transformer_output)
+        #print("Pos_Preds" + str(pos_preds) + "\n")
+        #outputs = {'pred_pos': pos_preds[-1]}
+        # Define the main outputs along with the auxialiary loss
+        outputs = {'pred_pos': tf.math.multiply(pos_preds[-1],image_shape)}
+        #print("Outputs" + str(outputs) + "\n")
+        outputs["aux"] = [ {"pred_pos": tf.math.multiply(pos_preds[i],image_shape)} for i in range(0, 5)]
+
+        n_detr = tf.keras.Model(image_input, outputs, name="detr_finetuning")
+        return n_detr
+
+    elif include_top is False and nb_class is not None:
+        #Type 2 model (Class and Position with FFN - multi Dense layers)
+        return add_heads_nlayers(config, detr, nb_class)
+
+    # FFN (Feedforward Neural Network)
+    # = n*Linear(Custom Dense fit PyTorch Dense weights) 
+    # = n*Dense (Default Keras Linear layer)
+
+    # if include_top is True 
+    # Type 3 model (Class and Position with FFN - one Linear layer)
+    # Type 3 - Part 2
     transformer_output = detr(image_input)
 
-    outputs_class = class_embed(transformer_output)
+
+    # Type 3 - Part 3
+    outputs_class = class_embed(transformer_output) # class_embed = one Linear layer
     box_ftmps = activation(bbox_embed_linear1(transformer_output))
     box_ftmps = activation(bbox_embed_linear2(box_ftmps))
     outputs_coord = tf.sigmoid(bbox_embed_linear3(box_ftmps))
@@ -190,7 +256,7 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
     outputs = {}
 
     output = {'pred_logits': outputs_class[-1],
-                'pred_boxes': outputs_coord[-1]}
+              'pred_boxes': outputs_coord[-1]}
 
     output["aux"] = []
     for i in range(0, num_decoder_layers - 1):
@@ -201,5 +267,5 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
             "pred_boxes": pred_boxes
         })
 
-    return tf.keras.Model(image_input, output, name="detr_finetuning")
+    return tf.keras.Model(inputs=image_input, outputs=output, name="detr_finetuning")
 
