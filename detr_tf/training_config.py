@@ -58,7 +58,7 @@ class TrainingConfig():
         self.batch_size = 1
         self.gradient_norm_clipping = 0.1
         # Batch aggregate before to backprop
-        self.target_batch = 8
+        self.target_batch = 1
 
         # Learning rate
         # Set as tf.Variable so that the variable can be update during the training while

@@ -17,7 +17,7 @@ from .weights import load_weights
 
 
 class DETR(tf.keras.Model):
-    def __init__(self, num_classes=92, num_queries=15,
+    def __init__(self, num_classes=92, num_queries=21, #change
                  backbone=None,
                  pos_encoder=None,
                  transformer=None,
@@ -37,6 +37,7 @@ class DETR(tf.keras.Model):
                 return_intermediate_dec=return_intermediate_dec,
                 name='transformer'
         )
+        #self.transformer.summary()
         
         self.model_dim = self.transformer.model_dim
         # Miss name here??
@@ -107,12 +108,12 @@ def add_heads_nlayers(config, detr, nb_class):
     # Type 2 - Input
     image_input = tf.keras.Input((None, None, 3))
     # Setup the new layers
-    cls_layer = tf.keras.layers.Dense(nb_class, name="cls_layer")
+    cls_layer = tf.keras.layers.Dense(nb_class, name="cls_layer") # 分類
     pos_layer = tf.keras.models.Sequential([
         tf.keras.layers.Dense(256, activation="relu"),
         tf.keras.layers.Dense(256, activation="relu"),
         tf.keras.layers.Dense(4, activation="sigmoid"),
-    ], name="pos_layer")
+    ], name="pos_layer") # 位置框
     config.add_nlayers([cls_layer, pos_layer])
 
     # Type 2 - Part 2
@@ -150,11 +151,14 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
         tf.keras.application to load the weight. If you do want to load the tf backbone, and not
         laod the weights from pytorch, set this variable to True.
     """
+    keypoints = 21
+
     detr = DETR(num_decoder_layers=num_decoder_layers, num_encoder_layers=num_encoder_layers)
     # load weights
     if weights is not None:
         print("DETR load Weights \n")
         load_weights(detr, weights)
+
     # Type 1,3 - Input
     image_input = tf.keras.Input((None, None, 3))
 
@@ -187,14 +191,14 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
     bbox_embed_linear3 = detr.get_layer('bbox_embed_2')
     activation = detr.get_layer("re_lu")
 
-    image_shape = tf.repeat([[212, 256]], 15, axis=0, name=None)
-    image_shape = tf.repeat([image_shape], config.batch_size, axis=0, name=None)
-    image_shape = tf.cast(image_shape, dtype=tf.float32, name=None)
+    image_shape = tf.repeat([[128, 128]], keypoints, axis=0, name=None) #宣告：單張圖片經過 ResNet 得到的 feature map (width * height * number)
+    image_shape = tf.repeat([image_shape], config.batch_size, axis=0, name=None) # 宣告：一個 iterator 中的值 feature map * batch size
+    image_shape = tf.cast(image_shape, dtype=tf.float32, name=None) #宣告：資料為浮點數
 
     # Type 1 - Part 1
     x = backbone(image_input)
 
-    # create mask object for position embedding
+    # create mask object for position embedding 創建用於位置編碼的遮罩張量
     masks = tf.zeros((tf.shape(x)[0], tf.shape(x)[1], tf.shape(x)[2]), tf.bool)
     pos_encoding = position_embedding_sine(masks)
 
@@ -207,28 +211,61 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
     detr = tf.keras.Model(image_input, hs, name="detr")
     #detr.summary()
 
-    if include_top is False and nb_class is None:
+    if include_top is False and nb_class is None: # 選用這個 !!
 
-        #Type 1 model
+        print("Choose Type 1")
+
+        #Type 1 model 用於 transformer 的輸出之後
         pos_layer = tf.keras.models.Sequential([
+            #tf.keras.layers.Flatten(),
             tf.keras.layers.Dense(256, activation="relu"),
-            tf.keras.layers.Dense(256, activation="relu"),
-            tf.keras.layers.Dense(2, activation="sigmoid"),
+            tf.keras.layers.Dense(128, activation="relu"),
+            tf.keras.layers.Dense(keypoints*2, activation="relu"), # change
         ], name="custom_pos_layer")
 
         config.add_nlayers([pos_layer])
 
         transformer_output = detr(image_input)
+        # transformer_output = hs = [Layer number, RGB channel, query dim, model dim] = [6, 3, 15, 256]
 
         #print(transformer_output)
 
-        pos_preds = pos_layer(transformer_output)
+        # [RGB channel, query dim, model dim] = [3, 21, 256]
+        pos_layer_input = tf.transpose(transformer_output[num_decoder_layers-1], [1, 0, 2]) # ↓
+        # [query dim, RGB channel, model dim] = [21, 3, 256]
+
+        
+
+        #pos_preds = pos_layer(pos_layer_input) 
+        pos_layer_input = tf.reshape(pos_layer_input, [1, 5376])
+
+        pos_preds = pos_layer(pos_layer_input)
+        #print(pos_preds)
+
+        #pos_preds = tf.keras.activations.softmax(pos_preds, axis=-1)
+        #print(pos_preds)
+
+        #for i in range(1, 21):
+            #pre_coords = pos_layer(pos_layer_input[i])
+            #pre_coords = tf.keras.activations.softmax(pre_coords, axis=-1)
+            #pos_preds = tf.concat([pos_preds, pre_coords], 0)
+
+        pos_preds = tf.reshape(pos_preds,[1,keypoints,2]) #change
+            
+
         #print("Pos_Preds" + str(pos_preds) + "\n")
         #outputs = {'pred_pos': pos_preds[-1]}
+
+        #pos_preds = tf.transpose(pos_preds, [1, 0, 2])
+
+        
+
         # Define the main outputs along with the auxialiary loss
-        outputs = {'pred_pos': tf.math.multiply(pos_preds[-1],image_shape)}
+        #outputs = {'pred_pos': tf.math.multiply(pos_preds,image_shape)} # decoder 最後一層output的預測解果
+        outputs = {'pred_pos': pos_preds}
         #print("Outputs" + str(outputs) + "\n")
-        outputs["aux"] = [ {"pred_pos": tf.math.multiply(pos_preds[i],image_shape)} for i in range(0, 5)]
+
+        #outputs["aux"] = [ {"pred_pos": tf.math.multiply(pos_preds[i],image_shape)} for i in range(0, 5)] # decoder 的每一層output的預測解果
 
         n_detr = tf.keras.Model(image_input, outputs, name="detr_finetuning")
         return n_detr
@@ -241,7 +278,7 @@ def get_detr_model(config, include_top=False, nb_class=None, weights=None, tf_ba
     # = n*Linear(Custom Dense fit PyTorch Dense weights) 
     # = n*Dense (Default Keras Linear layer)
 
-    # if include_top is True 
+    # if include_top is True and nb_class is not None:
     # Type 3 model (Class and Position with FFN - one Linear layer)
     # Type 3 - Part 2
     transformer_output = detr(image_input)

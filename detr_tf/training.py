@@ -19,6 +19,7 @@ def run_train_step(model, images, skeleton_lable, optimizers, config):
         # Compute own loss
         m_outputs = model(images, training=True)
         total_loss = new_get_losses(m_outputs, skeleton_lable, config)
+        
         total_loss = total_loss / gradient_aggregate
 
     # Compute gradient for each part of the network
@@ -52,7 +53,7 @@ def fit(model, train_dt, optimizers, config, epoch_nb):
 
         # Run the prediction and retrieve the gradient step for each part of the network
         m_outputs, total_loss, gradient_steps = run_train_step(model, images, skeleton_lable, optimizers, config)
-
+        #print(total_loss)
         avg_loss+=total_loss
         
         # Load the predictions
@@ -64,7 +65,7 @@ def fit(model, train_dt, optimizers, config, epoch_nb):
             aggregate_grad_and_apply(name, optimizers, gradient_steps[name]["gradients"], epoch_step, config)
 
         # Log every 250 steps
-        if epoch_step % 250 == 0:
+        if epoch_step % 250 == 0 and epoch_step != 0:
             avg_loss = avg_loss/250
             t = t if t is not None else time.time()
             elapsed = time.time() - t
@@ -103,17 +104,22 @@ def eval(model, valid_dt, config, evaluation_step=2000):
         if val_step % 100 == 0:
             t = t if t is not None else time.time()
             elapsed = time.time() - t
-            print(f"Validation step: [{val_step}], time : [{elapsed:.2f}], loss : [{avg_loss:.2f}]")
+            print(f"Validation step: [{val_step}], time : [{elapsed:.2f}], loss : [{avg_loss/100:.2f}]")
+
+            avg_loss = 0
             #print(m_outputs)
             #print(f"Validation step: [{val_step}], \t giou : [{log['giou_loss']:.2f}] \t l1 : [{log['l1_loss']:.2f}] \t time : [{elapsed:.2f}]")
+        # 顯示最後一張圖
         if val_step+1 >= evaluation_step:
             image_u8 = tf.cast(images[0], tf.uint8)
             #eval_image = tf.io.encode_png(image_u8)
             np_image = np.array(image_u8)
             #print("Output \n" + str(m_outputs) + "\n")
             #break
-            #print("Model Output" + str(m_outputs['pred_pos']))
-            skeleton_lable = tf.cast(m_outputs['pred_pos'][0], dtype=tf.int32)
+            
+            print("Model Output \n" + str(m_outputs['pred_pos']))
+
+            skeleton_lable = tf.cast(m_outputs['pred_pos'][0], dtype=tf.int32) 
             skeleton_lable = np.array(skeleton_lable)
 
             return np_image, skeleton_lable

@@ -51,7 +51,7 @@ class Transformer(tf.keras.Model):
                           training=training)
 
         # hs = [Layer number, query dim, RGB channel, model dim] = [6, 100, 3, 256]
-        hs = tf.transpose(hs, [0, 2, 1, 3]) 
+        hs = tf.transpose(hs, [0, 2, 1, 3]) # ↓
         # hs = [Layer number, RGB channel, query dim, model dim] = [6, 3, 100, 256]
 
         memory = tf.transpose(memory, [1, 0, 2])

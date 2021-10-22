@@ -62,7 +62,7 @@ def show_result(eval_image, lable):
     #print(lable)
     for coor in lable:
         print(coor)
-        eval_image = cv2.circle(eval_image, (int(coor[0]),int(coor[1])), 5, (255, 0, 0), -1)
+        eval_image = cv2.circle(eval_image, (int(coor[0]),int(coor[1])), 2, (255, 0, 0), -1)
  
     cv2.imshow('Image', eval_image)
     cv2.waitKey(0)
@@ -102,19 +102,20 @@ def run_finetuning(config):
     # Run the training for 180 epochs
     for epoch_nb in range(180):
 
-        if epoch_nb > 0:
+        #if epoch_nb > 0:
             # After the first epoch, we finetune the transformers and the new layers
-            config.train_backbone.assign(True)
-            config.backbone_lr.assign(1e-4)
-            config.train_transformers.assign(True)
-            config.transformers_lr.assign(1e-3)
-            config.nlayers_lr.assign(1e-2)
-            print("Training")
+        config.train_backbone.assign(True)
+        config.backbone_lr.assign(1e-3) # 0.001
+        config.train_transformers.assign(True)
+        config.transformers_lr.assign(1e-3)
+        config.nlayers_lr.assign(0.1)
+        print("Start Training")
+
         # Train
         training.fit(detr, train_dt, optimzers, config, epoch_nb)
         # training.fit(detr, train_dt, optimzers, config, epoch_nb, class_names)
-        # Test
-        eval_image, lable = training.eval(detr, valid_dt, config, evaluation_step=1000)
+        # 驗證
+        eval_image, lable = training.eval(detr, valid_dt, config, evaluation_step=250)
         show_result(eval_image, lable)
         # print last data coor
         for coor in lable:

@@ -81,15 +81,15 @@ def read_image(filename, label):
     image_string = tf.io.read_file(filename)
     image_decoded = tf.image.decode_png(image_string, channels=3)
     # 轉換型別
-    image_std = tf.image.per_image_standardization(image_decoded)
-    image_converted = tf.cast(image_std, tf.float32)
+    #image_std = tf.image.per_image_standardization(image_decoded)
+    image_converted = tf.cast(image_decoded, tf.float16)
     #print("image shape\n" + str(image_decoded))
 
     return image_converted, label
 
 def load_text_file(file_name):
     # current_path = os.getcwd()
-    path = 'D:\\Dataset\\Body Data\\K2HPD'
+    path = 'D:\\Dataset\\Body\\K2HPD'
     file_path = os.path.join(path, file_name)
     f = open(file_path, 'r') # 開啟並讀取檔案
     lines = f.readlines() # 讀取檔案內容的每一行文字為陣列
@@ -106,8 +106,10 @@ def load_text_file(file_name):
         skeletons = list()
         for coor in range(0, 29, 2):
             skeletons.append([float(skeleton_xy[coor]),float(skeleton_xy[coor+1])])
+        #print(skeletons)
         skeleton_list.append(skeletons)
     f.close() # 關閉檔案
+    #skeleton_list = tf.cast(skeleton_list, tf.float16)
     return image_list, skeleton_list
 
 def load_k4b_dataset(batch_size, file_name):
@@ -115,6 +117,110 @@ def load_k4b_dataset(batch_size, file_name):
     dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list)))
     dataset = dataset.map(read_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     dataset = dataset.shuffle(1000, reshuffle_each_iteration=False)
+    # Batch images
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+
+    return dataset
+
+
+def read_coco_image(filename, label):
+    # 讀取並解碼圖片
+    image_string = tf.io.read_file(filename)
+    image_decoded = tf.image.decode_jpeg(image_string, channels=3)
+    # 轉換型別
+    image_std = tf.image.per_image_standardization(image_decoded)
+    image_converted = tf.cast(image_std, tf.float16)
+    #print("image shape\n" + str(image_decoded))
+
+    return image_converted, label
+
+def load_coco_text(file_name):
+    # current_path = os.getcwd()
+    path = 'D:\\Dataset\\Hand\\COCO'
+    file_path = os.path.join(path, file_name)
+    f = open(file_path, 'r') # 開啟並讀取檔案
+    lines = f.readlines() # 讀取檔案內容的每一行文字為陣列
+    image_list = list()
+    skeleton_list = list()
+
+    for line in lines:
+        line = line.split()
+        image_name = line[0]
+        image_path = os.path.join(path, 'image', image_name)
+        image_list.append(image_path)
+        skeleton_xy = line[1]
+        skeleton_xy = skeleton_xy.split(',')
+        skeletons = list()
+        for coor in range(0, 41, 2): # skeleton: 42
+            skeletons.append([float(skeleton_xy[coor]),float(skeleton_xy[coor+1])])
+        skeleton_list.append(skeletons)
+    f.close() # 關閉檔案
+    return image_list, skeleton_list
+
+def load_freihand_dataset(batch_size, file_name):
+    image_list, skeleton_list = load_coco_text(file_name)
+    dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list)))
+    dataset = dataset.map(read_coco_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    dataset = dataset.shuffle(1000, reshuffle_each_iteration=False)
+    # Batch images
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+
+    return dataset
+
+
+def read_freihand_image(file_path, label, mask_path):
+    # 讀取並解碼圖片
+    image_string = tf.io.read_file(file_path)
+    image_decoded = tf.image.decode_jpeg(image_string, channels=3)
+    image_converted = tf.cast(image_decoded, tf.float32)
+    # 轉換型別
+    image_std = tf.image.per_image_standardization(image_converted)
+    
+    #print("image shape\n" + str(image_decoded))
+
+    mask_string = tf.io.read_file(mask_path)
+    mask_decoded = tf.image.decode_jpeg(mask_string, channels=3)
+    mask_gray = tf.image.rgb_to_grayscale(mask_decoded)
+    mask_converted = tf.cast(mask_gray, tf.float32)
+    mask_std = tf.image.per_image_standardization(mask_converted)
+    
+
+    return image_std, label, mask_std
+
+def load_freihand_text(file_name):
+    # current_path = os.getcwd()
+    base_path = os.path.join('D:\\', 'Dataset', 'Hand', 'FreiHAND')
+    text_path = os.path.join(base_path, file_name)
+
+    f = open(text_path, 'r') # 開啟並讀取檔案
+    lines = f.readlines() # 讀取檔案內容的每一行文字為陣列
+    image_list = list()
+    mask_list = list()
+    skeleton_list = list()
+
+    for line in lines:
+        line = line.split()
+        image_name = line[0]
+        image_path = os.path.join(base_path, 'rgb', image_name)
+        image_list.append(image_path)
+
+        mask_path = os.path.join(base_path, 'mask', image_name)
+        mask_list.append(mask_path)
+
+        skeleton_xy = line[1]
+        skeleton_xy = skeleton_xy.split(',')
+        skeletons = list()
+        for coord in range(0, 41, 2): # skeleton: 42
+            skeletons.append([float(coord),float(skeleton_xy[coord+1])])
+        skeleton_list.append(skeletons)
+    f.close() # 關閉檔案
+    return image_list, skeleton_list, mask_list
+
+def load_freihand_dataset(batch_size, file_name):
+    image_list, skeleton_list, mask_list = load_freihand_text(file_name)
+    dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list), tf.constant(mask_list)))
+    dataset = dataset.shuffle(1000, reshuffle_each_iteration=False)
+    dataset = dataset.map(read_freihand_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     # Batch images
     dataset = dataset.batch(batch_size, drop_remainder=True)
 

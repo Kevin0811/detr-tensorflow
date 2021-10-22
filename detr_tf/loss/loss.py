@@ -33,35 +33,79 @@ def get_losses(m_outputs, t_bbox, t_class, config):
 
     return total_loss, losses
 
-def new_get_losses(m_outputs, skeleton_lable, config):
-    losses = get_coor_losses(m_outputs['pred_pos'], skeleton_lable, config)
-    # Get auxiliary loss for each auxiliary output
-    if "aux" in m_outputs:
-        for a, aux_m_outputs in enumerate(m_outputs["aux"]):
-            aux_losses = get_coor_losses(aux_m_outputs['pred_pos'], skeleton_lable, config)
-            losses = losses + aux_losses
-    return losses
+def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints,image_size=[256,256], mask=None):
 
-def get_coor_losses(outputs, skeleton_lable, config):
+    total_loss = 0
+    aux_losses = 0
+
+
+    pos_preds = tf.reshape(m_outputs['pred_pos'],[batch_size, keypoints, 2])
+    #pos_preds =  m_outputs['pred_pos']
+
+    skeleton_lable = tf.math.divide(skeleton_lable, tf.cast(image_size, tf.float32))
+    #skeleton_lable = tf.reshape(skeleton_lable,[batch_size, keypoints*2])
+
+    coords_loss = get_coor_losses(pos_preds, skeleton_lable)
+    #print(losses)
+
+    total_loss = coords_loss
+
+    # Get auxiliary loss for each auxiliary output
+    if "pred_mask" in m_outputs:
+        for a, pred_mask in enumerate(m_outputs["pred_mask"]):
+            pred_mask = tf.image.resize(pred_mask, image_size)
+            aux_losses = aux_losses + get_aux_losses(pred_mask, mask[a])
+            
+        total_loss = total_loss + aux_losses/batch_size
+
+    return total_loss, coords_loss, aux_losses
+
+def get_aux_losses(mask_pred, mask_gt):
+
+    sub_mask = tf.math.subtract(mask_pred, mask_gt) # 相減
+    sq_mask = tf.math.square(sub_mask) # 平方
+    rm_mask = tf.reduce_mean(sq_mask) # 平均
+
+    aux_loss = tf.math.sqrt(rm_mask) # 開根號
+
+    return aux_loss
+
+
+def get_coor_losses(outputs, skeleton_lable):
+
     #print('outputs \n' + str(outputs)+'\n')
     #print('skeleton \n' + str(skeleton_lable)+'\n')
 
-    sub_distances = tf.math.subtract(outputs, skeleton_lable)
+    sub_distances = tf.math.subtract(outputs, skeleton_lable) # 相減
+    #print(sub_distances)
     
-    sq_distances = tf.math.square(sub_distances)
+    sq_distances = tf.math.square(sub_distances) # 平方
+
+    rs_distances = tf.reduce_sum(sq_distances, axis=1, keepdims=True) # 相加
     #print('sq_distances \n' + str(sq_distances)+'\n')
-    sum_pool = 2 * tf.keras.layers.AveragePooling1D(pool_size = 2, strides = 2, padding = "valid", data_format='channels_first')(sq_distances)
+
+    #sum_pool = 2 * tf.keras.layers.AveragePooling1D(pool_size = 2, strides = 2, padding = "valid", data_format='channels_first')(sq_distances)
     #print('sum_pool \n' + str(sum_pool)+'\n')
     # take the square root to get the distance
-    dists = tf.math.sqrt(sum_pool)
+    #dists = tf.math.sqrt(sum_pool)
     #print('dists \n' + str(dists)+'\n')
-    reshape_dists = tf.reshape(dists,[config.batch_size, 15])
+    #reshape_dists = tf.reshape(dists,[config.batch_size, 15])
     # take the mean of the distances
-    mean_dist = tf.reduce_mean(reshape_dists, axis=1, keepdims=False)
+    #mean_dist = tf.reduce_mean(reshape_dists, axis=1, keepdims=False)
     #print('mean_dist \n' + str(mean_dist)+'\n')
-    total_loss = tf.reduce_sum(mean_dist, axis=0)
+
+    ##rm_distances = tf.reduce_mean(sq_distances) # 平均
+
+    sqrt_loss = tf.math.sqrt(rs_distances) # 開根號
+
+    #mse_loss = tf.losses.mean_squared_error(outputs, skeleton_lable)
+
+    #sq_loss = tf.math.sqrt(mse_loss) # 開根號
+
+    coords_loss = tf.reduce_mean(sqrt_loss)
+
     #print(tf.print(total_loss))
-    return total_loss
+    return coords_loss
 
 def loss_labels(p_bbox, p_class, t_bbox, t_class, t_indices, p_indices, t_selector, p_selector, background_class=0):
 
