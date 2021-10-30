@@ -43,7 +43,7 @@ pos_layer = tf.keras.models.Sequential([
             tf.keras.layers.Dropout(0.2),
             tf.keras.layers.Dense(512, activation="relu"),
             tf.keras.layers.Dropout(0.2),
-            tf.keras.layers.Dense(keypoints*2, activation="relu"), # change
+            tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
             ], name="Position_layer")
 
 # 資料處理流程
@@ -91,7 +91,7 @@ def validation(val_model, val_data, val_step):
         # 執行估計
         val_output = val_model(images)
         # 計算損失值(MSE誤差)
-        val_loss_value, coords_loss ,aux_loss= new_get_losses(val_output, skeleton_lable, batch_size, keypoints)
+        val_loss_value, coords_loss ,aux_loss= new_get_losses(val_output, skeleton_lable, batch_size, keypoints, image_size)
 
         val_avg_loss += val_loss_value
 
@@ -124,14 +124,9 @@ for epoch_nb in range(training_epoch):
     time_counter = time.time()
 
     # Assing learning_rate
-    if epoch_nb > 15:
-        learning_rate = 1e-4
-    if epoch_nb > 25:
-        learning_rate = 1e-5
-    if epoch_nb > 50:
-        learning_rate = 1e-6
-
-    optimizer.learning_rate.assign(learning_rate)
+    if epoch_nb%15 == 0 and epoch_nb != 0 and learning_rate > 5e-5:
+        learning_rate = learning_rate*0.5
+        optimizer.learning_rate.assign(learning_rate)
 
     for step , (images, skeleton_lable, mask) in enumerate(train_dt):
         total_train_step += 1
@@ -140,7 +135,7 @@ for epoch_nb in range(training_epoch):
             # 估計
             model_output = custom_model(images)
             # 計算損失值
-            loss_value, coords_loss ,aux_loss = new_get_losses(model_output, skeleton_lable, batch_size, keypoints)
+            loss_value, coords_loss ,aux_loss = new_get_losses(model_output, skeleton_lable, batch_size, keypoints, image_size)
 
             total_loss += loss_value
             

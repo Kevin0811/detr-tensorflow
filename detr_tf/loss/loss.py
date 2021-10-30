@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorlayer as tl
 from .. import bbox
 from .hungarian_matching import hungarian_matching
 
@@ -33,19 +34,21 @@ def get_losses(m_outputs, t_bbox, t_class, config):
 
     return total_loss, losses
 
-def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints,image_size=[256,256], mask=None):
+def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints,image_size=[224,224], mask=None):
 
     total_loss = 0
-    aux_losses = 0
-
+    aux_losses = 1
+    #print(image_size)
 
     pos_preds = tf.reshape(m_outputs['pred_pos'],[batch_size, keypoints, 2])
+    #pos_preds = tf.math.multiply(pos_preds, tf.cast(image_size, tf.float32))
     #pos_preds =  m_outputs['pred_pos']
+    #print(skeleton_lable)
 
     skeleton_lable = tf.math.divide(skeleton_lable, tf.cast(image_size, tf.float32))
     #skeleton_lable = tf.reshape(skeleton_lable,[batch_size, keypoints*2])
 
-    coords_loss = get_coor_losses(pos_preds, skeleton_lable)
+    coords_loss = get_coords_losses(pos_preds, skeleton_lable)
     #print(losses)
 
     total_loss = coords_loss
@@ -55,23 +58,76 @@ def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints,image_size=[
         for a, pred_mask in enumerate(m_outputs["pred_mask"]):
             pred_mask = tf.image.resize(pred_mask, image_size)
             aux_losses = aux_losses + get_aux_losses(pred_mask, mask[a])
-            
-        total_loss = total_loss + aux_losses/batch_size
+            #print(aux_losses)
+        aux_losses = aux_losses/batch_size
+        total_loss = total_loss + aux_losses
 
     return total_loss, coords_loss, aux_losses
 
 def get_aux_losses(mask_pred, mask_gt):
 
-    sub_mask = tf.math.subtract(mask_pred, mask_gt) # 相減
-    sq_mask = tf.math.square(sub_mask) # 平方
-    rm_mask = tf.reduce_mean(sq_mask) # 平均
+    mask_gt = tf.math.divide(mask_gt, 255)
+    #sub_mask = tf.math.subtract(mask_pred, mask_gt) # 相減
+    #sq_mask = tf.math.square(sub_mask) # 平方
+    #rm_mask = tf.reduce_sum(sq_mask) # 平均
 
-    aux_loss = tf.math.sqrt(rm_mask) # 開根號
+    #aux_loss = tf.math.sqrt(rm_mask) # 開根號
 
-    return aux_loss
+    #softmax_loss = tf.nn.weighted_cross_entropy_with_logits(mask_gt, mask_pred)
+    #aux_loss = tf.reduce_mean(softmax_loss)
+    #print(dice_coe(mask_pred, mask_gt))
 
+    #mask_pred = tf.nn.softmax(mask_pred)
+    dice = 1-dice_coe(mask_pred, mask_gt)
 
-def get_coor_losses(outputs, skeleton_lable):
+    #print(dice)
+
+    #aux_loss = tf.reduce_mean(dice)
+
+    return dice
+
+def dice_coe(output, target, loss_type='jaccard', smooth=1e-5):
+    """Soft dice (Sørensen or Jaccard) coefficient for comparing the similarity
+    of two batch of data, usually be used for binary image segmentation
+    i.e. labels are binary. The coefficient between 0 to 1, 1 means totally match.
+
+    Parameters
+    -----------
+    output : Tensor
+        A distribution with shape: [batch_size, ....], (any dimensions).
+    target : Tensor
+        The target distribution, format the same with `output`.
+    loss_type : str
+        ``jaccard`` or ``sorensen``, default is ``jaccard``.
+    axis : tuple of int
+        All dimensions are reduced, default ``[1,2,3]``.
+    smooth : float
+        This small value will be added to the numerator and denominator.
+            - If both output and target are empty, it makes sure dice is 1.
+            - If either output or target are empty (all pixels are background), dice = ```smooth/(small_value + smooth)``, then if smooth is very small, dice close to 0 (even the image values lower than the threshold), so in this case, higher smooth can have a higher dice.
+
+    Examples
+    ---------
+    >>> outputs = tl.act.pixel_wise_softmax(network.outputs)
+    >>> dice_loss = 1 - tl.cost.dice_coe(outputs, y_)
+
+    """
+    inse = tf.reduce_sum(output * target)
+    if loss_type == 'jaccard':
+        l = tf.reduce_sum(output * output)
+        r = tf.reduce_sum(target * target)
+    elif loss_type == 'sorensen':
+        l = tf.reduce_sum(output)
+        r = tf.reduce_sum(target)
+    else:
+        raise Exception("Unknow loss_type")
+
+    dice = (2. * inse + smooth) / (l + r + smooth)
+    dice = tf.reduce_mean(dice)
+
+    return dice
+
+def get_coords_losses(outputs, skeleton_lable):
 
     #print('outputs \n' + str(outputs)+'\n')
     #print('skeleton \n' + str(skeleton_lable)+'\n')
@@ -81,8 +137,12 @@ def get_coor_losses(outputs, skeleton_lable):
     
     sq_distances = tf.math.square(sub_distances) # 平方
 
-    rs_distances = tf.reduce_sum(sq_distances, axis=1, keepdims=True) # 相加
+    rs_distances = tf.reduce_sum(sq_distances, axis=2, keepdims=True) # XY 相加
     #print('sq_distances \n' + str(sq_distances)+'\n')
+
+    #sqrt_loss = tf.math.sqrt(rs_distances) # 開根號
+    
+    sum_distances = tf.reduce_sum(rs_distances, axis=1, keepdims=True) # KeyPoints 相加
 
     #sum_pool = 2 * tf.keras.layers.AveragePooling1D(pool_size = 2, strides = 2, padding = "valid", data_format='channels_first')(sq_distances)
     #print('sum_pool \n' + str(sum_pool)+'\n')
@@ -96,13 +156,13 @@ def get_coor_losses(outputs, skeleton_lable):
 
     ##rm_distances = tf.reduce_mean(sq_distances) # 平均
 
-    sqrt_loss = tf.math.sqrt(rs_distances) # 開根號
+    
 
     #mse_loss = tf.losses.mean_squared_error(outputs, skeleton_lable)
 
     #sq_loss = tf.math.sqrt(mse_loss) # 開根號
 
-    coords_loss = tf.reduce_mean(sqrt_loss)
+    coords_loss = tf.reduce_mean(sum_distances) # batch 平均
 
     #print(tf.print(total_loss))
     return coords_loss

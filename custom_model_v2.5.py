@@ -12,10 +12,8 @@ from detr_tf.data.tfcsv import load_freihand_dataset
 # 相關變數
 image_size = [224, 224]
 keypoints = 21
-batch_size = 8
+batch_size = 6
 dataset = 'frei'
-
-learning_rate = 0.00025
 
 training_epoch = 100
 print_step = 500
@@ -48,7 +46,7 @@ pos_layer = tf.keras.models.Sequential([
             tf.keras.layers.Dropout(0.2),
             tf.keras.layers.Dense(512, activation="relu"),
             tf.keras.layers.Dropout(0.2),
-            tf.keras.layers.Dense(keypoints*2, activation="relu"), # change
+            tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
             ], name="Position_layer")
 
 mask_layer = tf.keras.models.Sequential([
@@ -80,10 +78,14 @@ custom_model = tf.keras.Model(image_input, outputs, name="custom_model")
 # 印出架構
 custom_model.summary()
 
+backbone_learning_rate = 0.00025
+mask_learning_rate = 0.0001
+pos_learning_rate = 0.00025
+
 # 優化器
-backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-mask_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-pos_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=backbone_learning_rate)
+mask_optimizer = tf.keras.optimizers.Adam(learning_rate=mask_learning_rate)
+pos_optimizer = tf.keras.optimizers.Adam(learning_rate=pos_learning_rate)
 
 # 載入資料集
 train_dt = load_freihand_dataset(batch_size, "freihand_train_annos.txt")
@@ -122,7 +124,7 @@ def validation(val_model, val_data, val_step):
     print('Validation Compelet\n')
     return val_step
 
-# 調整學習率
+# 調整學習率(未使用)
 def change_learning_rate(array, lr):
     array = array[-1000:]
     lr_changed = False
@@ -144,16 +146,18 @@ for epoch_nb in range(training_epoch):
     time_counter = time.time()
 
     # Assing learning_rate
-    if epoch_nb > 5:
-        learning_rate = 1e-4
-    if epoch_nb > 15:
-        learning_rate = 1e-5
-    if epoch_nb > 30:
-        learning_rate = 1e-6
+    if epoch_nb%15 == 0 and epoch_nb != 0:
 
-    backbone_optimizer.learning_rate.assign(learning_rate)
-    mask_optimizer.learning_rate.assign(learning_rate)
-    pos_optimizer.learning_rate.assign(learning_rate)
+        backbone_learning_rate = backbone_optimizer.learning_rate*0.5
+        mask_learning_rate = mask_optimizer.learning_rate*0.5
+        pos_learning_rate = pos_optimizer.learning_rate*0.5
+
+        if backbone_learning_rate > 5e-5:
+            backbone_optimizer.learning_rate.assign(backbone_learning_rate)
+        if mask_learning_rate > 5e-5:
+            mask_optimizer.learning_rate.assign(mask_learning_rate)
+        if pos_learning_rate > 5e-5:
+            pos_optimizer.learning_rate.assign(pos_learning_rate)
 
     for step , (images, skeleton_lable, mask) in enumerate(train_dt):
         total_train_step += 1
@@ -162,7 +166,7 @@ for epoch_nb in range(training_epoch):
         aux_loss = 0
         coords_loss = 0
 
-        with tf.GradientTape() as tape:
+        with tf.GradientTape(persistent=True) as tape:
             # 估計
             model_output = custom_model(images)
             # 計算損失值
@@ -187,6 +191,8 @@ for epoch_nb in range(training_epoch):
         backbone_grads = tape.gradient(loss_value, backbone_weights)
         mask_grads = tape.gradient(aux_loss, mask_weights)
         pos_grads = tape.gradient(coords_loss, pos_weights)
+
+        del tape
 
         # 更新權重
         backbone_optimizer.apply_gradients(zip(backbone_grads, backbone_weights))

@@ -105,7 +105,7 @@ def load_text_file(file_name):
         skeleton_xy = skeleton_xy.split(',')
         skeletons = list()
         for coor in range(0, 29, 2):
-            skeletons.append([float(skeleton_xy[coor]),float(skeleton_xy[coor+1])])
+            skeletons.append([float(skeleton_xy[coor]), float(skeleton_xy[coor+1])])
         #print(skeletons)
         skeleton_list.append(skeletons)
     f.close() # 關閉檔案
@@ -182,10 +182,10 @@ def read_freihand_image(file_path, label, mask_path):
     mask_decoded = tf.image.decode_jpeg(mask_string, channels=3)
     mask_gray = tf.image.rgb_to_grayscale(mask_decoded)
     mask_converted = tf.cast(mask_gray, tf.float32)
-    mask_std = tf.image.per_image_standardization(mask_converted)
+    #mask_std = tf.image.per_image_standardization(mask_converted)
     
 
-    return image_std, label, mask_std
+    return image_std, label, mask_converted
 
 def load_freihand_text(file_name):
     # current_path = os.getcwd()
@@ -199,7 +199,7 @@ def load_freihand_text(file_name):
     skeleton_list = list()
 
     for line in lines:
-        line = line.split()
+        line = line.split(' ')
         image_name = line[0]
         image_path = os.path.join(base_path, 'rgb', image_name)
         image_list.append(image_path)
@@ -210,9 +210,12 @@ def load_freihand_text(file_name):
         skeleton_xy = line[1]
         skeleton_xy = skeleton_xy.split(',')
         skeletons = list()
-        for coord in range(0, 41, 2): # skeleton: 42
-            skeletons.append([float(coord),float(skeleton_xy[coord+1])])
-        skeleton_list.append(skeletons)
+        try:
+            for coord in range(0, 41, 2): # skeleton: 42
+                skeletons.append([float(skeleton_xy[coord]),float(skeleton_xy[coord+1])])
+            skeleton_list.append(skeletons)
+        except:
+            print(image_name)
     f.close() # 關閉檔案
     return image_list, skeleton_list, mask_list
 
