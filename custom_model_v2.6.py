@@ -49,10 +49,11 @@ pos_layer = tf.keras.models.Sequential([
             tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
             ], name="Position_layer")
 
+# [new] 調整過的上採樣層，直接輸出原圖大小(224*224)
 mask_layer = tf.keras.models.Sequential([
-             tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=3, activation="relu"),
-             tf.keras.layers.UpSampling2D(size=(3, 3)),
-             tf.keras.layers.Conv2DTranspose(filters=128, kernel_size=3, activation="relu"),
+             tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=4, activation="relu"),
+             tf.keras.layers.UpSampling2D(size=(2, 2)),
+             tf.keras.layers.Conv2DTranspose(filters=128, kernel_size=5, activation="relu"),
              tf.keras.layers.UpSampling2D(size=(3, 3)),
              tf.keras.layers.Conv2DTranspose(filters=32, kernel_size=3, activation="relu"),
              tf.keras.layers.UpSampling2D(size=(3, 3)),
@@ -60,9 +61,6 @@ mask_layer = tf.keras.models.Sequential([
              ], name="Mask_layer")
 # 資料處理流程
 featuremap = backbone(image_input)
-#featuremap = backbone.output
-
-#print(featuremap)
 
 pos_preds = pos_layer(featuremap)
 
@@ -95,10 +93,7 @@ valid_dt = load_freihand_dataset(batch_size, "freihand_test_annos.txt")
 #writer = SummaryWriter('logs/k4b-1')
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 #train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-train_summary_writer = tf.summary.create_file_writer('logs/frei-' + current_time)
-
-with train_summary_writer.as_default():
-    tf.summary.graph(custom_model.get_concrete_model().graph)
+train_summary_writer = tf.summary.create_file_writer('logs/resnet-mask-frei-' + current_time)
 
 total_train_step = 0
 total_val_step = 0
@@ -234,7 +229,7 @@ for epoch_nb in range(training_epoch):
 
     # 儲存模型和權重
     #tf.saved_model.save(custom_model, '/weights/custom_model_' + dataset + '.h5')
-    custom_model.save('weights/custom_model_v25_' + dataset + '.h5')
+    custom_model.save('weights/custom_model_v26_' + dataset + '.h5')
     custom_model.save_weights('weights/'+ dataset +'/custom-model_' + current_time + ".ckpt")
 
 print('Traingin Compelet')

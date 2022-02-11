@@ -5,10 +5,13 @@ import numpy as np
 import imageio
 import os
 from os.path import expanduser
+import glob # for reading files
 
 from .import processing
 from .transformation import detr_transform
 from .. import bbox
+
+""" Load the hardhat dataset ↓ """
 
 def load_data_from_index(index, class_names, filenames, anns, config, augmentation, img_dir):
     # Open the image
@@ -35,10 +38,8 @@ def load_data_from_index(index, class_names, filenames, anns, config, augmentati
 
     return image.astype(np.float32), t_bbox.astype(np.float32), np.expand_dims(t_class, axis=-1).astype(np.int64)
 
-
 def load_tfcsv_dataset(config, batch_size, augmentation=False, exclude=[], ann_dir=None, ann_file=None, img_dir=None):
-    """ Load the hardhat dataset
-    """
+    
     ann_dir = config.data.ann_dir if ann_dir is None else ann_dir
     ann_file = config.data.ann_file if ann_file is None else ann_file
     img_dir = config.data.img_dir if img_dir is None else img_dir
@@ -75,6 +76,10 @@ def load_tfcsv_dataset(config, batch_size, augmentation=False, exclude=[], ann_d
     dataset = dataset.batch(batch_size, drop_remainder=True)
     
     return dataset, class_names
+
+""" Load the hardhat dataset ↑ """
+
+""" Load the k4b dataset ↓ """
 
 def read_image(filename, label):
     # 讀取並解碼圖片
@@ -122,6 +127,9 @@ def load_k4b_dataset(batch_size, file_name):
 
     return dataset
 
+""" Load the k4b dataset ↑ """
+
+""" Load the coco dataset ↓ """
 
 def read_coco_image(filename, label):
     # 讀取並解碼圖片
@@ -157,16 +165,10 @@ def load_coco_text(file_name):
     f.close() # 關閉檔案
     return image_list, skeleton_list
 
-def load_freihand_dataset(batch_size, file_name):
-    image_list, skeleton_list = load_coco_text(file_name)
-    dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list)))
-    dataset = dataset.map(read_coco_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    dataset = dataset.shuffle(1000, reshuffle_each_iteration=False)
-    # Batch images
-    dataset = dataset.batch(batch_size, drop_remainder=True)
+""" Load the coco dataset ↑ """
 
-    return dataset
 
+""" Load the freihand dataset ↓ """
 
 def read_freihand_image(file_path, label, mask_path):
     # 讀取並解碼圖片
@@ -184,7 +186,6 @@ def read_freihand_image(file_path, label, mask_path):
     mask_converted = tf.cast(mask_gray, tf.float32)
     #mask_std = tf.image.per_image_standardization(mask_converted)
     
-
     return image_std, label, mask_converted
 
 def load_freihand_text(file_name):
@@ -228,3 +229,80 @@ def load_freihand_dataset(batch_size, file_name):
     dataset = dataset.batch(batch_size, drop_remainder=True)
 
     return dataset
+
+""" Load the freihand dataset ↑ """
+
+""" Load the vTouch dataset ↓ """
+
+def read_vtouch_image(file_path, skeleton_label, mask_path, gesture_label):
+
+    """ 讀取彩色圖片 """
+    # 讀取並解碼圖片
+    image_string = tf.io.read_file(file_path) # 讀取檔案
+    image_decoded = tf.image.decode_jpeg(image_string, channels=3) # 解碼圖片
+    image_converted = tf.cast(image_decoded, tf.float32) # int 轉 float
+    image_std = tf.image.per_image_standardization(image_converted) # 標準化
+    
+    #print("image shape\n" + str(image_decoded))
+
+    """ 讀取黑白圖片 """
+    mask_string = tf.io.read_file(mask_path)
+    mask_decoded = tf.image.decode_jpeg(mask_string, channels=1) # 注意維度
+    #mask_gray = tf.image.rgb_to_grayscale(mask_decoded)
+    mask_converted = tf.cast(mask_decoded, tf.float32) # int 轉成 float
+    #mask_std = tf.image.per_image_standardization(mask_converted)
+    
+    return image_std, skeleton_label, mask_converted, gesture_label
+
+def load_vtouch_text():
+
+    data_folder = "D:\\vTouch Gesture\\data\\"
+
+    image_list = list()
+    mask_list = list()
+    skeleton_list = list()
+    gesture_list = list()
+
+    gesture_num = 0
+
+    data_nums = 0
+
+    for gesture in os.listdir(data_folder):
+        hand_data_path = data_folder + gesture + '\\*[0-9].jpg'
+
+        hand_data_path = glob.iglob(hand_data_path.encode('unicode_escape'))
+
+        for path in hand_data_path:
+            item_path = path.decode()
+
+            image_list.append(item_path)
+
+            mask_list.append(item_path[:-4] + '_dpt.jpg')
+
+            hand_kp = np.load(item_path[:-4] + '.npy')
+            skeletons = list()
+            for i in range(21): # skeleton: 42
+                skeletons.append([float(hand_kp[i][0]),float(hand_kp[i][1])])
+            skeleton_list.append(skeletons)
+
+            gesture_list.append(gesture_num)
+
+            data_nums += 1
+
+        gesture_num += 1
+
+    print("Total Data Nums:", data_nums)
+
+    return image_list, skeleton_list, mask_list, gesture_list
+
+def load_vtouch_dataset(batch_size):
+    image_list, skeleton_list, mask_list, gesture_list = load_vtouch_text()
+    dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list), tf.constant(mask_list), tf.constant(gesture_list)))
+    dataset = dataset.shuffle(1000, reshuffle_each_iteration=False)
+    dataset = dataset.map(read_vtouch_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    # Batch images
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+
+    return dataset
+
+""" Load the freihand dataset ↑ """

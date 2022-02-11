@@ -34,7 +34,7 @@ def get_losses(m_outputs, t_bbox, t_class, config):
 
     return total_loss, losses
 
-def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints,image_size=[224,224], mask=None):
+def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints, image_size=[224,224], mask=None):
 
     total_loss = 0
     aux_losses = 1
@@ -48,10 +48,10 @@ def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints,image_size=[
     skeleton_lable = tf.math.divide(skeleton_lable, tf.cast(image_size, tf.float32))
     #skeleton_lable = tf.reshape(skeleton_lable,[batch_size, keypoints*2])
 
-    coords_loss = get_coords_losses(pos_preds, skeleton_lable)
+    crds_loss = get_crds_losses(pos_preds, skeleton_lable)
     #print(losses)
 
-    total_loss = coords_loss
+    total_loss = crds_loss
 
     # Get auxiliary loss for each auxiliary output
     if "pred_mask" in m_outputs:
@@ -62,7 +62,7 @@ def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints,image_size=[
         aux_losses = aux_losses/batch_size
         total_loss = total_loss + aux_losses
 
-    return total_loss, coords_loss, aux_losses
+    return total_loss, crds_loss, aux_losses
 
 def get_aux_losses(mask_pred, mask_gt):
 
@@ -127,7 +127,7 @@ def dice_coe(output, target, loss_type='jaccard', smooth=1e-5):
 
     return dice
 
-def get_coords_losses(outputs, skeleton_lable):
+def get_crds_losses(outputs, skeleton_lable):
 
     #print('outputs \n' + str(outputs)+'\n')
     #print('skeleton \n' + str(skeleton_lable)+'\n')
@@ -162,10 +162,10 @@ def get_coords_losses(outputs, skeleton_lable):
 
     #sq_loss = tf.math.sqrt(mse_loss) # 開根號
 
-    coords_loss = tf.reduce_mean(sum_distances) # batch 平均
+    crds_loss = tf.reduce_mean(sum_distances) # batch 平均
 
     #print(tf.print(total_loss))
-    return coords_loss
+    return crds_loss
 
 def loss_labels(p_bbox, p_class, t_bbox, t_class, t_indices, p_indices, t_selector, p_selector, background_class=0):
 
