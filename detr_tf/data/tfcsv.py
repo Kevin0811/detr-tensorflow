@@ -292,6 +292,7 @@ def load_vtouch_text():
         gesture_num += 1
 
     print("Total Data Nums:", data_nums)
+    #print("Hand labels:", gesture_list)
 
     return image_list, skeleton_list, mask_list, gesture_list
 

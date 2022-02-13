@@ -34,35 +34,51 @@ def get_losses(m_outputs, t_bbox, t_class, config):
 
     return total_loss, losses
 
-def new_get_losses(m_outputs, skeleton_lable, batch_size, keypoints, image_size=[224,224], mask=None):
+def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoints, image_size=[224,224], mask=None):
 
     total_loss = 0
-    aux_losses = 1
+    aux_losses = 0 # ?
+    crds_loss = None
+    gesture_loss = None
     #print(image_size)
 
+    # 調整 Predicted KeyPoints 的維度 
+    # [batch size, total number of keypoints(=21)*2(=x, y)] → [batch_size, total number of keypoints(21), 2(=x, y)]
     pos_preds = tf.reshape(m_outputs['pred_pos'],[batch_size, keypoints, 2])
+
     #pos_preds = tf.math.multiply(pos_preds, tf.cast(image_size, tf.float32))
     #pos_preds =  m_outputs['pred_pos']
     #print(skeleton_lable)
 
+    # Ground Truth KeyPoints 標準化(x, y 座標 ÷ 圖片長寬)
     skeleton_lable = tf.math.divide(skeleton_lable, tf.cast(image_size, tf.float32))
     #skeleton_lable = tf.reshape(skeleton_lable,[batch_size, keypoints*2])
 
+    # KeyPoints Loss
     crds_loss = get_crds_losses(pos_preds, skeleton_lable)
-    #print(losses)
 
-    total_loss = crds_loss
+    total_loss += crds_loss
 
+    # Segmentation Loss
     # Get auxiliary loss for each auxiliary output
     if "pred_mask" in m_outputs:
-        for a, pred_mask in enumerate(m_outputs["pred_mask"]):
-            pred_mask = tf.image.resize(pred_mask, image_size)
-            aux_losses = aux_losses + get_aux_losses(pred_mask, mask[a])
+        for num, pred_mask in enumerate(m_outputs["pred_mask"]):
+
+            # 調整 Predicted Mask 使其與 Ground Truth Mask 大小一致
+            if pred_mask.shape != image_size:
+                pred_mask = tf.image.resize(pred_mask, image_size)
+
+            aux_losses = aux_losses + get_aux_losses(pred_mask, mask[num])
             #print(aux_losses)
         aux_losses = aux_losses/batch_size
-        total_loss = total_loss + aux_losses
+        total_loss += aux_losses
 
-    return total_loss, crds_loss, aux_losses
+    if "pred_gesture" in m_outputs:
+        scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        gesture_loss = scce(gesture_label, m_outputs["pred_gesture"])
+        total_loss += gesture_loss
+        
+    return total_loss, crds_loss, aux_losses, gesture_loss
 
 def get_aux_losses(mask_pred, mask_gt):
 
