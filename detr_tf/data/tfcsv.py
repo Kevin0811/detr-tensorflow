@@ -299,7 +299,7 @@ def load_vtouch_text():
 def load_vtouch_dataset(batch_size):
     image_list, skeleton_list, mask_list, gesture_list = load_vtouch_text()
     dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list), tf.constant(mask_list), tf.constant(gesture_list)))
-    dataset = dataset.shuffle(1000, reshuffle_each_iteration=False)
+    dataset = dataset.shuffle(3000, reshuffle_each_iteration=False)
     dataset = dataset.map(read_vtouch_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     # Batch images
     dataset = dataset.batch(batch_size, drop_remainder=True)

@@ -40,6 +40,7 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
     aux_losses = 0 # ?
     crds_loss = None
     gesture_loss = None
+    shared_loss = None
     #print(image_size)
 
     # 調整 Predicted KeyPoints 的維度 
@@ -58,6 +59,7 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
     crds_loss = get_crds_losses(pos_preds, skeleton_lable)
 
     total_loss += crds_loss
+    shared_loss = crds_loss
 
     # Segmentation Loss
     # Get auxiliary loss for each auxiliary output
@@ -77,8 +79,11 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
         scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
         gesture_loss = scce(gesture_label, m_outputs["pred_gesture"])
         total_loss += gesture_loss
+        shared_loss += gesture_loss
+    
+    
         
-    return total_loss, crds_loss, aux_losses, gesture_loss
+    return total_loss, crds_loss, aux_losses, gesture_loss, shared_loss
 
 def get_aux_losses(mask_pred, mask_gt):
 
@@ -156,9 +161,9 @@ def get_crds_losses(outputs, skeleton_lable):
     rs_distances = tf.reduce_sum(sq_distances, axis=2, keepdims=True) # XY 相加
     #print('sq_distances \n' + str(sq_distances)+'\n')
 
-    #sqrt_loss = tf.math.sqrt(rs_distances) # 開根號
+    sqrt_distances = tf.math.sqrt(rs_distances) # 開根號 [modify in 3.2]
     
-    sum_distances = tf.reduce_sum(rs_distances, axis=1, keepdims=True) # KeyPoints 相加
+    sum_distances = tf.reduce_sum(sqrt_distances, axis=1, keepdims=True) # KeyPoints 相加
 
     #sum_pool = 2 * tf.keras.layers.AveragePooling1D(pool_size = 2, strides = 2, padding = "valid", data_format='channels_first')(sq_distances)
     #print('sum_pool \n' + str(sum_pool)+'\n')
@@ -172,13 +177,14 @@ def get_crds_losses(outputs, skeleton_lable):
 
     ##rm_distances = tf.reduce_mean(sq_distances) # 平均
 
-    
-
     #mse_loss = tf.losses.mean_squared_error(outputs, skeleton_lable)
 
     #sq_loss = tf.math.sqrt(mse_loss) # 開根號
 
     crds_loss = tf.reduce_mean(sum_distances) # batch 平均
+
+    #if crds_loss > 10:
+        #print("get large loss", )
 
     #print(tf.print(total_loss))
     return crds_loss

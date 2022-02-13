@@ -5,13 +5,15 @@ import numpy as np
 
 image_size = [224, 224]
 keypoints = 21
+# 要載入的模型
+model_name = 'custom_model_v25_frei.h5'
 
 physical_devices = tf.config.list_physical_devices('GPU')
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 載入模型和權重
-custom_model = tf.keras.models.load_model('custom_model_v25_frei.h5')
+custom_model = tf.keras.models.load_model(model_name)
 
 def read_frei_image(filepath):
     # 讀取並解碼圖片
@@ -70,6 +72,7 @@ image = tf.reshape(image, [1, image_size[0], image_size[1], 3])
 
 #image_tf = tf.convert_to_tensor(image, dtype=tf.float32)
 
+# 執行預測
 model_outputs = custom_model(image)
 
 #image_u8 = tf.cast(image[0], tf.uint8)
