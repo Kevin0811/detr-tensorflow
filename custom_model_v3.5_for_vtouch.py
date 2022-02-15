@@ -9,11 +9,17 @@ from detr_tf.networks.resnet_backbone import ResNet50Backbone
 from detr_tf.loss.loss import new_get_losses
 from detr_tf.data.tfcsv import load_vtouch_dataset
 
+from swintransformer import SwinTransformer # [new in v3.5]
+
 # 相關變數
 image_size = [224, 224]
 keypoints = 21
 batch_size = 6
 dataset = 'vtouch'
+version = 'v3.5'
+waiting4header = False
+load_pretrained = False
+pretrained_model_name = 'weights\custom_model_v25_frei.h5'
 
 training_epoch = 100
 print_step = 200
@@ -24,23 +30,28 @@ physical_devices = tf.config.list_physical_devices('GPU')
 if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
-# 輸入圖片宣告
+
+# 圖片輸入層
 image_input = tf.keras.Input((image_size[0], image_size[1], 3))
 
-# 骨幹
-#backbone = ResNet50Backbone(name='Backbone_ResNet50')
-resnet = tf.keras.applications.resnet50.ResNet50(include_top=False, 
-                                                 weights=None, 
-                                                 input_tensor=image_input,
-                                                 input_shape=(image_size[0], image_size[1], 3), 
-                                                 pooling=None)
-backbone = tf.keras.models.Sequential([
-            resnet
-            ], name="Backbone_layer")
+# 骨幹層
+if load_pretrained: # 讀取預訓練權重 [new in v3.4]
+    pretrained_model = tf.keras.models.load_model(pretrained_model_name, compile=False)
+    backbone = pretrained_model.get_layer('Backbone_layer')
+    waiting4header = True
+else:
+    swintrans = SwinTransformer('swin_tiny_224', include_top=False, pretrained=True)
+
+    backbone = tf.keras.models.Sequential([
+                swintrans
+                ], name="Backbone_layer")
+
+# 先鎖定權重
+backbone.trainable = True
 
 # 回歸與分類共用層
-# [new in 3.1] 將回歸網路和分類網路的上層部分共用
-# [new in 3.2] 增加共用層的比例
+# [new in v3.1] 將回歸網路和分類網路的上層部分共用
+# [new in v3.2] 增加共用層的比例
 shared_layer = tf.keras.models.Sequential([
                tf.keras.layers.Conv2D(filters=64, kernel_size=1, activation='relu'),
                tf.keras.layers.MaxPool2D((2,2)),
@@ -52,17 +63,18 @@ shared_layer = tf.keras.models.Sequential([
 
 # 前饋神經網路 + dropout (用於回歸手部關鍵點)
 pos_layer = tf.keras.models.Sequential([
+            tf.keras.layers.Dense(128, activation="relu"), # [new in v3.2]
             tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
             ], name="Position_layer")
 
 # 前饋神經網路 + dropout (用於分類手勢)
 gesture_layer = tf.keras.models.Sequential([
-            tf.keras.layers.Dense(64, activation="relu"),
-            tf.keras.layers.Dense(gesture_cnt, activation="softmax"), # change
-            ], name="Gesture_layer")
+                tf.keras.layers.Dense(64, activation="relu"),
+                tf.keras.layers.Dense(gesture_cnt, activation="softmax"), # change
+                ], name="Gesture_layer")
 
 # 上採樣 + transpose (用於語意分割)
-# [new in 2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
+# [new in v2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
 mask_layer = tf.keras.models.Sequential([
              tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=4, activation="relu"),
              tf.keras.layers.UpSampling2D(size=(2, 2)),
@@ -120,7 +132,7 @@ print("Valid Dataset Length:", tf.data.experimental.cardinality(valid_dt).numpy(
 #writer = SummaryWriter('logs/k4b-1')
 current_time = datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
 #train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-train_summary_writer = tf.summary.create_file_writer('logs/v3/resnet+mask+gesture+shared(v3.2)-' + dataset + '-' + current_time)
+train_summary_writer = tf.summary.create_file_writer('logs/v3/resnet+mask+gesture+shared' + version + '-' + dataset + '-' + current_time)
 
 #with train_summary_writer.as_default():
 #    tf.summary.graph(custom_model.get_concrete_model().graph)
@@ -166,12 +178,15 @@ def change_learning_rate(array, lr):
 # 驗證
 #total_val_step = validation(custom_model, valid_dt, total_val_step)
 
+
+
 # 進行訓練
 for epoch_nb in range(training_epoch):
     print("\n>>> Start of Epoch %d\n" % (epoch_nb,))
 
     # Training
     total_loss = 0
+    loss_value = 0
     time_counter = time.time()
 
     # Assing learning_rate 調整學習率
@@ -195,9 +210,33 @@ for epoch_nb in range(training_epoch):
     for step , (images, skeleton_lable, mask, gesture_label) in enumerate(train_dt):
         total_train_step += 1
 
-        loss_value = 0
-        aux_loss = 0
-        crds_loss = 0
+        #loss_value = 0
+        #aux_loss = 0
+        #crds_loss = 0
+
+        # [new in v3.3] 分段訓練
+        # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
+        # 則在訓練前半段先鎖定其權重，待至其他網路收斂後再一起加入訓練
+        if waiting4header and step > 1 and loss_value < 3:
+            backbone_learning_rate = 0.00005
+            backbone.trainable = True
+            waiting4header = False
+            print("Start training backbone")
+        # 後續則將骨幹層跟任務層錯開訓練
+        # if step%2==0:
+        #     backbone.trainable = False
+        #     shared_layer.trainable = False
+
+        #     gesture_layer.trainable = True
+        #     pos_layer.trainable = True
+        #     mask_layer.trainable = True
+        # else:
+        #     backbone.trainable = True
+        #     shared_layer.trainable = True
+
+        #     gesture_layer.trainable = False
+        #     pos_layer.trainable = False
+        #     mask_layer.trainable = False
 
         with tf.GradientTape(persistent=True) as tape:
             # 估計
@@ -265,7 +304,7 @@ for epoch_nb in range(training_epoch):
             time_counter = time.time()
             total_loss = 0
 
-            custom_model.save('weights/custom_model_v3.2_' + dataset + '.h5')
+            #custom_model.save('weights/custom_model_' + version + '_' + dataset + '.h5')
 
     # 打印學習率
     #print("Learning rate: " + str(optimizer.learning_rate))
@@ -275,7 +314,7 @@ for epoch_nb in range(training_epoch):
 
     # 儲存模型和權重
     #tf.saved_model.save(custom_model, '/weights/custom_model_' + dataset + '.h5')
-    custom_model.save('weights/custom_model_v3.2_' + dataset + '.h5')
+    custom_model.save('weights/custom_model_' + version + '_' + dataset + '.h5')
     custom_model.save_weights('weights/'+ dataset +'/custom-model_' + current_time + ".ckpt")
 
 print('Training Completed !')
