@@ -14,7 +14,7 @@ from tfswin import SwinTransformerTiny224
 # 相關變數
 image_size = [224, 224]
 keypoints = 21
-batch_size = 4
+batch_size = 6
 dataset = 'vtouch'
 version = 'v3.6'
 waiting4header = False
@@ -51,7 +51,8 @@ backbone.trainable = True
 # [new in v3.1] 將回歸網路和分類網路的上層部分共用
 # [new in v3.2] 增加共用層的比例
 shared_layer = tf.keras.models.Sequential([
-               # To-do 加入 tf.keras.layersGlobalAveragePooling2D
+               # 加入 tf.keras.layersGlobalAveragePooling2D
+               tf.keras.layers.GlobalAveragePooling2D(),
                tf.keras.layers.Dense(512, activation="relu"),
                tf.keras.layers.Dropout(0.2),
                tf.keras.layers.Dense(265, activation="relu"),
@@ -72,7 +73,6 @@ gesture_layer = tf.keras.models.Sequential([
 # 上採樣 + transpose (用於語意分割)
 # [new in v2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
 mask_layer = tf.keras.models.Sequential([
-             tf.keras.layers.Reshape((7, 7, 768), input_shape=(49, 768)),
              tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=4, activation="relu"),
              tf.keras.layers.UpSampling2D(size=(2, 2)),
              tf.keras.layers.Conv2DTranspose(filters=128, kernel_size=5, activation="relu"),
@@ -110,7 +110,7 @@ backbone_learning_rate = 0.00025
 mask_learning_rate = 0.0001
 shared_learning_rate = 0.00001
 pos_learning_rate = 0.00025
-gesture_learning_rate = 0.0001
+gesture_learning_rate = 0.00005
 
 # 優化器
 backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=backbone_learning_rate)
@@ -132,7 +132,7 @@ print("Valid Dataset Length:", tf.data.experimental.cardinality(valid_dt).numpy(
 #writer = SummaryWriter('logs/k4b-1')
 current_time = datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
 #train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-train_summary_writer = tf.summary.create_file_writer('logs/v3/resnet+mask+gesture+shared' + version + '-' + dataset + '-' + current_time)
+train_summary_writer = tf.summary.create_file_writer('logs/v3/swintrans+mask+gesture+shared' + version + '-' + dataset + '-' + current_time)
 
 #with train_summary_writer.as_default():
 #    tf.summary.graph(custom_model.get_concrete_model().graph)
@@ -159,10 +159,10 @@ def validation(val_model, val_data, val_step):
 
     # 紀錄損失值 
     with train_summary_writer.as_default():
-        tf.summary.scalar('val_loss', val_avg_loss/val_step, total_train_step)
+        tf.summary.scalar('val_loss', val_avg_loss/len(val_data), total_train_step)
     
-    print('\r>>> Validation Compeleted')
-    print(f"Results: average loss : [{val_avg_loss:.3f}], crd loss : [{val_crds_loss:.3f}], aux loss : [{val_aux_loss:.3f}], gesture loss : [{val_gesture_loss:.3f}]\n")
+    print('\r>>> Validation Compeleted\n')
+    print(f"Results: average loss : [{val_avg_loss/len(val_data):.3f}], crd loss : [{val_crds_loss:.3f}], aux loss : [{val_aux_loss:.3f}], gesture loss : [{val_gesture_loss:.3f}]\n")
     return val_step
 
 # 調整學習率(未使用)
@@ -177,7 +177,6 @@ def change_learning_rate(array, lr):
 
 # 驗證
 #total_val_step = validation(custom_model, valid_dt, total_val_step)
-
 
 
 # 進行訓練
