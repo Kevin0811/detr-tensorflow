@@ -134,7 +134,7 @@ print("Valid Dataset Length:", tf.data.experimental.cardinality(valid_dt).numpy(
 #writer = SummaryWriter('logs/k4b-1')
 current_time = datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
 #train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-train_summary_writer = tf.summary.create_file_writer('logs/v3/resnet+mask+gesture+shared' + version + '-' + dataset + '-' + current_time)
+train_summary_writer = tf.summary.create_file_writer('logs/v3/resnet+mask+gesture+shared-' + version + '-' + dataset + '-' + current_time)
 
 #with train_summary_writer.as_default():
 #    tf.summary.graph(custom_model.get_concrete_model().graph)
@@ -217,13 +217,13 @@ for epoch_nb in range(training_epoch):
         # [new in v3.3] 分段訓練
         # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
         # 則在訓練前半段先鎖定其權重，待至其他網路收斂後再一起加入訓練
-        if waiting4header and step > 1 and loss_value < 3:
+        if waiting4header and step > 1 and loss_value < 1.5:
             backbone_learning_rate = 0.00005
             backbone.trainable = True
             waiting4header = False
             print("Start training backbone")
         # 後續則將骨幹層跟任務層錯開訓練
-        # if step%2==0:
+        # elif step%2==0:
         #     backbone.trainable = False
         #     shared_layer.trainable = False
 

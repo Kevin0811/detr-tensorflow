@@ -20,7 +20,12 @@ if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 載入模型和權重
-custom_model = tf.keras.models.load_model(model_name)
+custom_model = tf.keras.models.load_model(model_name, custom_objects={"PatchEmbed": PatchEmbed, 
+                                                                      "BasicLayer": BasicLayer, 
+                                                                      "SwinTransformerBlock": SwinTransformerBlock, 
+                                                                      "WindowAttention": WindowAttention,
+                                                                      "Mlp": Mlp,
+                                                                      "PatchMerging": PatchMerging})
 
 def show_result(eval_image, model_outputs):
 

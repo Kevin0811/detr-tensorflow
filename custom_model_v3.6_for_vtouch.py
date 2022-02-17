@@ -9,14 +9,14 @@ from detr_tf.networks.resnet_backbone import ResNet50Backbone
 from detr_tf.loss.loss import new_get_losses
 from detr_tf.data.tfcsv import load_vtouch_dataset
 
-from swintransformer import SwinTransformer # [new in v3.5]
+from tfswin import SwinTransformerTiny224
 
 # 相關變數
 image_size = [224, 224]
 keypoints = 21
 batch_size = 4
 dataset = 'vtouch'
-version = 'v3.5'
+version = 'v3.6'
 waiting4header = False
 load_pretrained = False
 pretrained_model_name = 'weights\custom_model_v25_frei.h5'
@@ -40,12 +40,8 @@ if load_pretrained: # 讀取預訓練權重 [new in v3.4]
     backbone = pretrained_model.get_layer('Backbone_layer')
     waiting4header = True
 else:
-    swintrans = SwinTransformer('swin_tiny_224', include_top=False, pretrained=True)
-
     backbone = tf.keras.models.Sequential([
-                swintrans.get_layer('patch_embed'),
-                swintrans.get_layer('dropout'),
-                swintrans.get_layer('sequential_4'),
+                SwinTransformerTiny224(include_top=False)
                 ], name="Backbone_layer")
 
 # 先鎖定權重
@@ -55,8 +51,7 @@ backbone.trainable = True
 # [new in v3.1] 將回歸網路和分類網路的上層部分共用
 # [new in v3.2] 增加共用層的比例
 shared_layer = tf.keras.models.Sequential([
-               swintrans.get_layer('norm'),
-               swintrans.get_layer('global_average_pooling1d'),
+               # To-do 加入 tf.keras.layersGlobalAveragePooling2D
                tf.keras.layers.Dense(512, activation="relu"),
                tf.keras.layers.Dropout(0.2),
                tf.keras.layers.Dense(265, activation="relu"),
@@ -319,7 +314,7 @@ for epoch_nb in range(training_epoch):
 
     # 儲存模型和權重
     #tf.saved_model.save(custom_model, '/weights/custom_model_' + dataset + '.h5')
-    #custom_model.save('weights/custom_model_' + version + '_' + dataset + '.h5')
+    custom_model.save('weights/custom_model_' + version + '_' + dataset + '.h5')
     custom_model.save_weights('weights/'+ dataset +'/custom-model_' + version + '_' + current_time + ".ckpt")
 
     #for i, w in enumerate(custom_model.weights): print(i, w.shape)
