@@ -68,7 +68,7 @@ def show_result(eval_image, model_outputs):
 
     # 將關鍵點放上圖片
     for coords in lable:
-        eval_image = cv2.circle(eval_image, (round(coords[1]),round(coords[0])), 2, (255, 0, 0), -1)
+        eval_image = cv2.circle(eval_image, (round(coords[0]),round(coords[1])), 2, (255, 0, 0), -1)
         #print(round(coords[0]),round(coords[1]))
 
 

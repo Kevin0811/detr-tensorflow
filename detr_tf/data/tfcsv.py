@@ -256,14 +256,28 @@ def read_vtouch_image(file_path, skeleton_label, mask_path, gesture_label):
 
 def load_vtouch_text():
 
-    data_folder = "D:\\vTouch Gesture\\data\\"
+    data_folder = "D:\\vTouch Gesture\\data2\\"
 
     image_list = list()
     mask_list = list()
     skeleton_list = list()
     gesture_list = list()
 
-    gesture_num = 0
+    actions = {'open':   0,
+               'fist':   1,
+               'one':    2,
+               'two':    3,
+               'three':  4,
+               'four':   5,
+               'six':    6,
+               'eight':  7,
+               'nine':   8, 
+               'ok':     9,
+               'check':  10,
+               'like':   11,
+               'middel': 12,
+               'yo':     13
+    }
 
     data_nums = 0
 
@@ -280,16 +294,15 @@ def load_vtouch_text():
             mask_list.append(item_path[:-4] + '_dpt.jpg')
 
             hand_kp = np.load(item_path[:-4] + '.npy')
+
             skeletons = list()
             for i in range(21): # skeleton: 42
                 skeletons.append([float(hand_kp[i][0]),float(hand_kp[i][1])])
             skeleton_list.append(skeletons)
 
-            gesture_list.append(gesture_num)
+            gesture_list.append(actions[gesture])
 
             data_nums += 1
-
-        gesture_num += 1
 
     print("Total Data Nums:", data_nums)
     #print("Hand labels:", gesture_list)
@@ -299,7 +312,7 @@ def load_vtouch_text():
 def load_vtouch_dataset(batch_size):
     image_list, skeleton_list, mask_list, gesture_list = load_vtouch_text()
     dataset = tf.data.Dataset.from_tensor_slices((tf.constant(image_list),tf.constant(skeleton_list), tf.constant(mask_list), tf.constant(gesture_list)))
-    dataset = dataset.shuffle(3000, reshuffle_each_iteration=False)
+    dataset = dataset.shuffle(5000, reshuffle_each_iteration=False)
     dataset = dataset.map(read_vtouch_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     # Batch images
     dataset = dataset.batch(batch_size, drop_remainder=True)
