@@ -3,15 +3,18 @@ import os
 import cv2
 import numpy as np
 import sys
-sys.path.append("./swintransformer")
 
-from swintransformer import SwinTransformer
-from swintransformer.model import PatchEmbed, BasicLayer, SwinTransformerBlock, WindowAttention, Mlp, PatchMerging
+from tfswin.ape import AbsoluteEmbedding
+from tfswin.basic import BasicLayer
+from tfswin.embed import PatchEmbedding
+from tfswin.merge import PatchMerging
+from tfswin.norm import LayerNorm
+
 
 image_size = [224, 224]
 keypoints = 21
 # 要載入的模型
-model_name = 'weights\custom_model_v3.5_vtouch.h5'
+model_name = 'weights\custom_model_v3.6_vtouch.h5'
 
 actions = np.array(['open', 'fist', 'one', 'two', 'three', 'four', 'six','eight', 'nine', 'ok', 'check', 'like', 'middel', 'yo'])
 
@@ -20,7 +23,7 @@ if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 載入模型和權重
-custom_model = tf.keras.models.load_model(model_name)
+custom_model = tf.keras.models.load_model(model_name, custom_objects={"TFSwin>PatchEmbedding": PatchEmbedding}, compile=False)
 
 def show_result(eval_image, model_outputs):
 
@@ -90,39 +93,44 @@ while cap.isOpened(): # 不要使用 while true
     
     if not ret:
         # 沒有畫面
-        continue
+        print("got nothing from capture")
+        break
 
     #print(frame.shape)
 
-    frame = cv2.flip(frame, 1)
+    if frame is not None:
 
-    hand_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.flip(frame, 1)
 
-    hand_img = hand_img[128:352, 208:432]
+        hand_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    #print(hand_img.shape)
+        hand_img = hand_img[128:352, 208:432]
 
-    
+        #print(hand_img.shape)
 
-    tf_hand_img = tf.convert_to_tensor(hand_img, dtype=tf.float32)
-
-    std_hand_img = tf.image.per_image_standardization(tf_hand_img)
-
-    input_img = tf.reshape(std_hand_img, [1, 224, 224, 3])
-
-    model_outputs = custom_model(input_img)
-
-    show_result(hand_img, model_outputs)
-
-    # cv2.rectangle(影像, 頂點座標, 對向頂點座標, 顏色, 線條寬度)
-    cv2.rectangle(frame, (208, 128), (432, 352), (255, 0, 0), 3)
         
-    # 顯示圖片
-    cv2.imshow('Camera view', frame)
-        
-    # 等待，若按下 'q' 退出
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+
+        tf_hand_img = tf.convert_to_tensor(hand_img, dtype=tf.float32)
+
+        std_hand_img = tf.image.per_image_standardization(tf_hand_img)
+
+        input_img = tf.reshape(std_hand_img, [1, 224, 224, 3])
+
+        model_outputs = custom_model(input_img)
+
+        show_result(hand_img, model_outputs)
+
+        # cv2.rectangle(影像, 頂點座標, 對向頂點座標, 顏色, 線條寬度)
+        cv2.rectangle(frame, (208, 128), (432, 352), (255, 0, 0), 3)
+            
+        # 顯示圖片
+        cv2.imshow('Camera view', frame)
+            
+        # 等待，若按下 'q' 退出
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    else:
+        print("frame is None")
 
 # 關閉視窗
 cv2.destroyAllWindows()

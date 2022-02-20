@@ -76,13 +76,11 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
         total_loss += aux_losses
 
     if "pred_gesture" in m_outputs:
-        scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
+        scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False) # 若最後一層有 softmax，則設為 False
         gesture_loss = scce(gesture_label, m_outputs["pred_gesture"])
         total_loss += gesture_loss
         shared_loss += gesture_loss
     
-    
-        
     return total_loss, crds_loss, aux_losses, gesture_loss, shared_loss
 
 def get_aux_losses(mask_pred, mask_gt):
