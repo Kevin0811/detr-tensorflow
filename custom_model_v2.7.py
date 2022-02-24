@@ -151,7 +151,7 @@ def validation(val_model, val_data, val_step):
         tf.summary.scalar('val_loss', val_avg_loss/len(val_data), total_train_step)
     
     print('\r>>> Validation Compeleted\n')
-    print(f"Results: average loss : [{val_avg_loss/len(val_data):.3f}], crd loss : [{val_crds_loss:.3f}], aux loss : [{val_aux_loss:.3f}], gesture loss : [{val_gesture_loss:.3f}]\n")
+    print(f"Results: average loss : [{val_avg_loss/len(val_data):.3f}], crd loss : [{val_crds_loss:.3f}], aux loss : [{val_aux_loss:.3f}]\n")
     return val_step
 
 # 調整學習率(未使用)
