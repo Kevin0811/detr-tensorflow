@@ -14,21 +14,19 @@ from tfswin import SwinTransformerTiny224
 # 相關變數
 image_size = [224, 224]
 keypoints = 21
-batch_size = 6
+batch_size = 32
 dataset = 'vtouch'
 version = 'v3.6'
 waiting4header = False
-load_pretrained = False
-pretrained_model_name = 'weights\custom_model_v25_frei.h5'
+load_pretrained = True
+pretrained_model_name = 'weights\custom_model_v2.7_frei.h5'
 
 training_epoch = 100
-print_step = 200
+print_step = 20
 gesture_cnt = 14
 
 # 設定 GPU
 physical_devices = tf.config.list_physical_devices('GPU')
-if len(physical_devices) > 0:
-    tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 
 # 圖片輸入層
@@ -38,31 +36,46 @@ image_input = tf.keras.Input((image_size[0], image_size[1], 3))
 if load_pretrained: # 讀取預訓練權重 [new in v3.4]
     pretrained_model = tf.keras.models.load_model(pretrained_model_name, compile=False)
     backbone = pretrained_model.get_layer('Backbone_layer')
+    mask_layer = pretrained_model.get_layer('Mask_layer')
+    shared_layer = pretrained_model.get_layer('Shared_layer')
+    pos_layer = pretrained_model.get_layer('Position_layer')
+
     waiting4header = True
+    # 鎖定權重
+    backbone.trainable = True
 else:
     backbone = tf.keras.models.Sequential([
                 SwinTransformerTiny224(include_top=False)
                 ], name="Backbone_layer")
 
-# 先鎖定權重
-backbone.trainable = True
+    # 回歸與分類共用層
+    # [new in v3.1] 將回歸網路和分類網路的上層部分共用
+    # [new in v3.2] 增加共用層的比例
+    shared_layer = tf.keras.models.Sequential([
+                # 加入 tf.keras.layersGlobalAveragePooling2D
+                tf.keras.layers.GlobalAveragePooling2D(),
+                tf.keras.layers.Dense(512, activation="relu"),
+                tf.keras.layers.Dropout(0.2),
+                tf.keras.layers.Dense(265, activation="relu"),
+                ], name="Shared_layer")
 
-# 回歸與分類共用層
-# [new in v3.1] 將回歸網路和分類網路的上層部分共用
-# [new in v3.2] 增加共用層的比例
-shared_layer = tf.keras.models.Sequential([
-               # 加入 tf.keras.layersGlobalAveragePooling2D
-               tf.keras.layers.GlobalAveragePooling2D(),
-               tf.keras.layers.Dense(512, activation="relu"),
-               tf.keras.layers.Dropout(0.2),
-               tf.keras.layers.Dense(265, activation="relu"),
-               ], name="Shared_layer")
-
-# 前饋神經網路 + dropout (用於回歸手部關鍵點)
-pos_layer = tf.keras.models.Sequential([
-            tf.keras.layers.Dense(128, activation="relu"), # [new in v3.2]
-            tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
-            ], name="Position_layer")
+    # 前饋神經網路 + dropout (用於回歸手部關鍵點)
+    pos_layer = tf.keras.models.Sequential([
+                tf.keras.layers.Dense(128, activation="relu"), # [new in v3.2]
+                tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
+                ], name="Position_layer")
+    
+    # 上採樣 + transpose (用於語意分割)
+    # [new in v2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
+    mask_layer = tf.keras.models.Sequential([
+                tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=4, activation="relu"),
+                tf.keras.layers.UpSampling2D(size=(2, 2)),
+                tf.keras.layers.Conv2DTranspose(filters=128, kernel_size=5, activation="relu"),
+                tf.keras.layers.UpSampling2D(size=(3, 3)),
+                tf.keras.layers.Conv2DTranspose(filters=32, kernel_size=3, activation="relu"),
+                tf.keras.layers.UpSampling2D(size=(3, 3)),
+                tf.keras.layers.Conv2DTranspose(filters=1, kernel_size=3, activation="sigmoid"),
+                ], name="Mask_layer")
 
 # 前饋神經網路 + dropout (用於分類手勢)
 gesture_layer = tf.keras.models.Sequential([
@@ -70,17 +83,6 @@ gesture_layer = tf.keras.models.Sequential([
                 tf.keras.layers.Dense(gesture_cnt, activation="softmax"), # change
                 ], name="Gesture_layer")
 
-# 上採樣 + transpose (用於語意分割)
-# [new in v2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
-mask_layer = tf.keras.models.Sequential([
-             tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=4, activation="relu"),
-             tf.keras.layers.UpSampling2D(size=(2, 2)),
-             tf.keras.layers.Conv2DTranspose(filters=128, kernel_size=5, activation="relu"),
-             tf.keras.layers.UpSampling2D(size=(3, 3)),
-             tf.keras.layers.Conv2DTranspose(filters=32, kernel_size=3, activation="relu"),
-             tf.keras.layers.UpSampling2D(size=(3, 3)),
-             tf.keras.layers.Conv2DTranspose(filters=1, kernel_size=3, activation="sigmoid"),
-             ], name="Mask_layer")
 
 # 資料處理流程
 featuremap = backbone(image_input)
@@ -122,8 +124,8 @@ gesture_optimizer = tf.keras.optimizers.Adam(learning_rate=gesture_learning_rate
 # 載入資料集
 vtouch_hand_dataset = load_vtouch_dataset(batch_size)
 # 切分資料集
-train_dt = vtouch_hand_dataset.skip(100)
-valid_dt = vtouch_hand_dataset.take(100)
+train_dt = vtouch_hand_dataset.skip(10)
+valid_dt = vtouch_hand_dataset.take(10)
 
 print("Train Dataset Length:", tf.data.experimental.cardinality(train_dt).numpy())
 print("Valid Dataset Length:", tf.data.experimental.cardinality(valid_dt).numpy())
@@ -224,8 +226,7 @@ for epoch_nb in range(training_epoch):
             backbone.trainable = True
             waiting4header = False
             print("Start training backbone")
-
-        # 凍結訓練
+        # 後續則將骨幹層跟任務層錯開訓練
         # if step%2==0:
         #     backbone.trainable = False
         #     shared_layer.trainable = False
