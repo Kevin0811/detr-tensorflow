@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorlayer as tl
 from .. import bbox
 from .hungarian_matching import hungarian_matching
+import numpy as np
 
 
 def get_total_losss(losses):
@@ -40,6 +41,7 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
     aux_losses = 0 # ?
     crds_loss = None
     gesture_loss = None
+    gesture_accuracy = 0
     shared_loss = None
     #print(image_size)
 
@@ -80,8 +82,11 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
         gesture_loss = scce(gesture_label, m_outputs["pred_gesture"])
         total_loss += gesture_loss*0.5
         shared_loss += gesture_loss*0.9
+
+        gesture_accuracy = np.mean(tf.keras.metrics.sparse_categorical_accuracy(gesture_label, m_outputs["pred_gesture"]).numpy())
+        
     
-    return total_loss, crds_loss, aux_losses, gesture_loss, shared_loss
+    return total_loss, crds_loss, aux_losses, gesture_loss, shared_loss, gesture_accuracy
 
 def get_aux_losses(mask_pred, mask_gt):
 

@@ -16,8 +16,8 @@ batch_size = 6
 dataset = 'vtouch'
 version = 'v3.4'
 waiting4header = False
-load_pretrained = True
-pretrained_model_name = 'weights\custom_model_v25_frei.h5'
+load_pretrained = False
+pretrained_model_name = 'weights\custom_model_v2.5_frei.h5'
 
 training_epoch = 100
 print_step = 200
@@ -34,8 +34,13 @@ image_input = tf.keras.Input((image_size[0], image_size[1], 3))
 
 # 骨幹層
 if load_pretrained: # 讀取預訓練權重 [new in v3.4]
+    print("Loading pretrained weights...")
     pretrained_model = tf.keras.models.load_model(pretrained_model_name, compile=False)
     backbone = pretrained_model.get_layer('Backbone_layer')
+    
+    # 鎖定權重
+    backbone.trainable = False
+
     waiting4header = True
 else:
     #backbone = ResNet50Backbone(name='Backbone_ResNet50')
@@ -47,9 +52,6 @@ else:
     backbone = tf.keras.models.Sequential([
                 resnet
                 ], name="Backbone_layer")
-
-# 先鎖定權重
-backbone.trainable = True
 
 # 回歸與分類共用層
 # [new in v3.1] 將回歸網路和分類網路的上層部分共用
@@ -71,7 +73,7 @@ pos_layer = tf.keras.models.Sequential([
 
 # 前饋神經網路 + dropout (用於分類手勢)
 gesture_layer = tf.keras.models.Sequential([
-                tf.keras.layers.Dense(64, activation="relu"),
+                tf.keras.layers.Dense(128, activation="relu"),
                 tf.keras.layers.Dense(gesture_cnt, activation="softmax"), # change
                 ], name="Gesture_layer")
 
@@ -108,24 +110,33 @@ custom_model = tf.keras.Model(image_input, outputs, name="custom_model")
 # 印出架構
 custom_model.summary()
 
-backbone_learning_rate = 0.00025
-mask_learning_rate = 0.0001
-shared_learning_rate = 0.00001
-pos_learning_rate = 0.00025
-gesture_learning_rate = 0.0001
+backbone_initial_lr = 0.00025
+mask_initial_lr = 0.0001
+shared_initial_lr = 0.00002
+pos_initial_lr = 0.00025
+gesture_initial_lr = 0.00002
+
+backbone_end_lr =  5e-5
+mask_end_lr = 1e-5
+shared_end_lr = 1e-6
+pos_end_lr = 5e-5
+gesture_end_lr = 1e-6
 
 # 優化器
-backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=backbone_learning_rate)
-mask_optimizer = tf.keras.optimizers.Adam(learning_rate=mask_learning_rate)
-shared_optimizer = tf.keras.optimizers.Adam(learning_rate=shared_learning_rate)
-pos_optimizer = tf.keras.optimizers.Adam(learning_rate=pos_learning_rate)
-gesture_optimizer = tf.keras.optimizers.Adam(learning_rate=gesture_learning_rate)
+backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=backbone_initial_lr)
+mask_optimizer = tf.keras.optimizers.Adam(learning_rate=mask_initial_lr)
+shared_optimizer = tf.keras.optimizers.Adam(learning_rate=shared_initial_lr)
+pos_optimizer = tf.keras.optimizers.Adam(learning_rate=pos_initial_lr)
+gesture_optimizer = tf.keras.optimizers.Adam(learning_rate=gesture_initial_lr)
 
 # 載入資料集
 vtouch_hand_dataset = load_vtouch_dataset(batch_size)
+
+total_data_batch = tf.data.experimental.cardinality(vtouch_hand_dataset).numpy()
+
 # 切分資料集
-train_dt = vtouch_hand_dataset.skip(100)
-valid_dt = vtouch_hand_dataset.take(100)
+train_dt = vtouch_hand_dataset.skip(int(total_data_batch/10))
+valid_dt = vtouch_hand_dataset.take(int(total_data_batch/10))
 
 print("Train Dataset Length:", tf.data.experimental.cardinality(train_dt).numpy())
 print("Valid Dataset Length:", tf.data.experimental.cardinality(valid_dt).numpy())
@@ -149,33 +160,52 @@ def validation(val_model, val_data, val_step):
     print('\n>>> Start Validation', end=' ')
 
     val_avg_loss = 0
+    val_avg_crds_loss = 0
+    val_avg_aux_loss = 0
+    val_avg_gesture_loss = 0
+    val_avg_shared_loss = 0
+    val_avg_gesture_acc = 0
+
+    data_len = len(val_data)
 
     for step , (images, skeleton_lable, mask, gesture_label) in enumerate(val_data):
         val_step += 1
         # 執行估計
         val_output = val_model(images)
         # 計算損失值(MSE誤差)
-        val_loss_value, val_crds_loss ,val_aux_loss, val_gesture_loss, val_shared_loss = new_get_losses(val_output, skeleton_lable,gesture_label,  batch_size, keypoints, image_size, mask)
+        val_loss_value, val_crds_loss ,val_aux_loss, val_gesture_loss, val_shared_loss, val_gesture_acc = new_get_losses(val_output, skeleton_lable,gesture_label,  batch_size, keypoints, image_size, mask)
 
         val_avg_loss += val_loss_value
+        val_avg_crds_loss += val_crds_loss
+        val_avg_aux_loss += val_aux_loss
+        val_avg_gesture_loss += val_gesture_loss
+        val_avg_shared_loss += val_shared_loss
+        val_avg_gesture_acc += val_gesture_acc
+
+    val_avg_loss = val_avg_loss/data_len
+    val_avg_crds_loss = val_avg_crds_loss/data_len
+    val_avg_aux_loss = val_avg_aux_loss/data_len
+    val_avg_gesture_loss = val_avg_gesture_loss/data_len
+    val_avg_shared_loss = val_avg_shared_loss/data_len
+    val_avg_gesture_acc = val_avg_gesture_acc/data_len
 
     # 紀錄損失值 
     with train_summary_writer.as_default():
-        tf.summary.scalar('val_loss', val_avg_loss/val_step, total_train_step)
+        tf.summary.scalar('val_avg_loss', val_avg_loss, total_train_step)
+        tf.summary.scalar('val_avg_crds_loss', val_avg_crds_loss, total_train_step)
+        tf.summary.scalar('val_avg_aux_loss', val_avg_aux_loss, total_train_step)
+        tf.summary.scalar('val_avg_gesture_loss', val_avg_gesture_loss, total_train_step)
+        tf.summary.scalar('val_avg_shared_loss', val_avg_shared_loss, total_train_step)
+        tf.summary.scalar('val_avg_gesture_acc', val_avg_gesture_acc, total_train_step)
     
     print('\r>>> Validation Compeleted')
-    print(f"Results: average loss : [{val_avg_loss:.3f}], crd loss : [{val_crds_loss:.3f}], aux loss : [{val_aux_loss:.3f}], gesture loss : [{val_gesture_loss:.3f}]\n")
+    print(f"Results: average loss : [{val_avg_loss:.3f}], crd loss : [{val_avg_crds_loss:.3f}], aux loss : [{val_avg_aux_loss:.3f}], gesture loss : [{val_avg_gesture_loss:.3f}]\n")    
     return val_step
 
-# 調整學習率(未使用)
-def change_learning_rate(array, lr):
-    array = array[-1000:]
-    lr_changed = False
-    if len(array)==1000 and lr > 1e-6:
-        if np.mean(array[:100])-np.mean(array[-100:]) < 0.8:
-            lr = lr * 0.5
-            lr_changed = True
-    return lr, lr_changed
+# 調整學習率(PolynomialDecay)
+def decayed_learning_rate(step, initial_learning_rate, end_learning_rate, decay_steps, power=5):
+    step = min(step, decay_steps)
+    return ((initial_learning_rate - end_learning_rate)*(1 - step / decay_steps) ** (power)) + end_learning_rate
 
 # 驗證
 #total_val_step = validation(custom_model, valid_dt, total_val_step)
@@ -190,21 +220,20 @@ for epoch_nb in range(training_epoch):
     time_counter = time.time()
 
     # Assing learning_rate 調整學習率
-    if epoch_nb%15 == 0 and epoch_nb != 0:
+    backbone_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, backbone_initial_lr, backbone_end_lr, training_epoch))
+    mask_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, mask_initial_lr, mask_end_lr, training_epoch))
+    pos_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, pos_initial_lr, pos_end_lr, training_epoch))
+    gesture_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, gesture_initial_lr, gesture_end_lr, training_epoch))
+    shared_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, shared_initial_lr, shared_end_lr, training_epoch))
 
-        backbone_learning_rate = backbone_optimizer.learning_rate*0.5
-        mask_learning_rate = mask_optimizer.learning_rate*0.5
-        pos_learning_rate = pos_optimizer.learning_rate*0.5
-        gesture_learning_rate = gesture_optimizer.learning_rate*0.5
 
-        if backbone_learning_rate > 5e-5:
-            backbone_optimizer.learning_rate.assign(backbone_learning_rate)
-        if mask_learning_rate > 5e-5:
-            mask_optimizer.learning_rate.assign(mask_learning_rate)
-        if pos_learning_rate > 5e-5:
-            pos_optimizer.learning_rate.assign(pos_learning_rate)
-        if gesture_learning_rate > 5e-5:
-            gesture_optimizer.learning_rate.assign(gesture_learning_rate)
+    # 紀錄學習率
+    tf.summary.scalar('Backbone learning rate', backbone_optimizer.learning_rate, total_train_step)
+    tf.summary.scalar('Mask learning rate', mask_optimizer.learning_rate, total_train_step)
+    tf.summary.scalar('Position learning rate', pos_optimizer.learning_rate, total_train_step)
+    tf.summary.scalar('Gesture learning rate', gesture_optimizer.learning_rate, total_train_step)
+    tf.summary.scalar('Shared learning rate', shared_optimizer.learning_rate, total_train_step)
+
 
     # 1 step = <batch size> images
     for step , (images, skeleton_lable, mask, gesture_label) in enumerate(train_dt):
@@ -217,32 +246,16 @@ for epoch_nb in range(training_epoch):
         # [new in v3.3] 分段訓練
         # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
         # 則在訓練前半段先鎖定其權重，待至其他網路收斂後再一起加入訓練
-        if waiting4header and step > 1 and loss_value < 1.5:
-            backbone_learning_rate = 0.00005
+        if waiting4header and step > 1 and loss_value < 0.5:
             backbone.trainable = True
             waiting4header = False
             print("Start training backbone")
-        # 後續則將骨幹層跟任務層錯開訓練
-        # elif step%2==0:
-        #     backbone.trainable = False
-        #     shared_layer.trainable = False
-
-        #     gesture_layer.trainable = True
-        #     pos_layer.trainable = True
-        #     mask_layer.trainable = True
-        # else:
-        #     backbone.trainable = True
-        #     shared_layer.trainable = True
-
-        #     gesture_layer.trainable = False
-        #     pos_layer.trainable = False
-        #     mask_layer.trainable = False
 
         with tf.GradientTape(persistent=True) as tape:
             # 估計
             model_output = custom_model(images)
             # 計算損失值
-            loss_value, crds_loss ,aux_loss, gesture_loss, shared_loss = new_get_losses(model_output, skeleton_lable, gesture_label, batch_size, keypoints, image_size, mask)
+            loss_value, crds_loss ,aux_loss, gesture_loss, shared_loss, gesture_acc = new_get_losses(model_output, skeleton_lable, gesture_label, batch_size, keypoints, image_size, mask)
 
             total_loss += loss_value
             
@@ -252,9 +265,8 @@ for epoch_nb in range(training_epoch):
                 tf.summary.scalar('crds_loss', crds_loss, total_train_step)
                 tf.summary.scalar('aux_loss', aux_loss, total_train_step)
                 tf.summary.scalar('gesture_loss', gesture_loss, total_train_step)
+                tf.summary.scalar('gesture_acc', gesture_acc, total_train_step)
                 tf.summary.scalar('shared_loss', shared_loss, total_train_step)
-                # 紀錄學習率
-                tf.summary.scalar('learning rate', backbone_optimizer.learning_rate, total_train_step)
 
         # 取得權重
         backbone_weights = custom_model.get_layer("Backbone_layer").trainable_variables
@@ -285,15 +297,6 @@ for epoch_nb in range(training_epoch):
             elapsed = time.time() - time_counter
             # 計算 將此 step 區間的平均損失值
             avg_loss = total_loss/print_step
-            # 將平均損失值紀錄到 avg_loss_array
-            #avg_loss_array.append(avg_loss)
-
-            # 調整 learning rate
-            #learning_rate, lr_changed = change_learning_rate(avg_loss_array, learning_rate)
-            # 將調整後的 learning rate 加入 優化器
-            #if lr_changed:
-                #optimizer.learning_rate.assign(learning_rate)
-                #avg_loss_array = []
 
             # 紀錄平均損失值
             with train_summary_writer.as_default():
@@ -301,6 +304,14 @@ for epoch_nb in range(training_epoch):
             # 印出資料
             print(f"Epoch: [{epoch_nb}], Step: [{step}], time : [{elapsed:.2f}], average loss : [{avg_loss:.5f}]")
             
+            # [new in v3.3] 分段訓練
+            # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
+            # 則在訓練前半段先鎖定其權重，待至其他網路收斂後再一起加入訓練
+            if waiting4header and avg_loss < 0.5:
+                backbone.trainable = True
+                waiting4header = False
+                print("Start training backbone")
+
             time_counter = time.time()
             total_loss = 0
 
