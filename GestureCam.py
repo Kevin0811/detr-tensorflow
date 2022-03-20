@@ -14,7 +14,7 @@ from tfswin.norm import LayerNorm
 image_size = [224, 224]
 keypoints = 21
 # 要載入的模型
-model_name = 'weights\custom_model_v3.6_vtouch.h5'
+model_name = 'weights\custom_model_v3.6_vtouch_b32_data_v4-2.h5'
 
 actions = np.array(['open', 'fist', 'one', 'two', 'three', 'four', 'six','eight', 'nine', 'ok', 'check', 'like', 'middel', 'yo'])
 
@@ -24,6 +24,7 @@ if len(physical_devices) > 0:
 
 # 載入模型和權重
 custom_model = tf.keras.models.load_model(model_name, custom_objects={"TFSwin>PatchEmbedding": PatchEmbedding}, compile=False)
+print(custom_model.summary())
 
 def show_result(eval_image, model_outputs):
 
