@@ -108,9 +108,9 @@ custom_model.summary()
 
 backbone_learning_rate = 0.00025
 mask_learning_rate = 0.0001
-shared_learning_rate = 0.00001
+shared_learning_rate = 0.00002
 pos_learning_rate = 0.00025
-gesture_learning_rate = 0.00005
+gesture_learning_rate = 0.00002
 
 # 優化器
 backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=backbone_learning_rate)
@@ -195,6 +195,7 @@ for epoch_nb in range(training_epoch):
         mask_learning_rate = mask_optimizer.learning_rate*0.5
         pos_learning_rate = pos_optimizer.learning_rate*0.5
         gesture_learning_rate = gesture_optimizer.learning_rate*0.5
+        shared_learning_rate = shared_optimizer.learning_rate*0.5
 
         if backbone_learning_rate > 5e-5:
             backbone_optimizer.learning_rate.assign(backbone_learning_rate)
@@ -202,8 +203,10 @@ for epoch_nb in range(training_epoch):
             mask_optimizer.learning_rate.assign(mask_learning_rate)
         if pos_learning_rate > 5e-5:
             pos_optimizer.learning_rate.assign(pos_learning_rate)
-        if gesture_learning_rate > 5e-5:
+        if gesture_learning_rate > 1e-5:
             gesture_optimizer.learning_rate.assign(gesture_learning_rate)
+        if shared_learning_rate > 1e-5:
+            shared_optimizer.learning_rate.assign(shared_learning_rate)
 
     # 1 step = <batch size> images
     for step , (images, skeleton_lable, mask, gesture_label) in enumerate(train_dt):
@@ -221,7 +224,8 @@ for epoch_nb in range(training_epoch):
             backbone.trainable = True
             waiting4header = False
             print("Start training backbone")
-        # 後續則將骨幹層跟任務層錯開訓練
+
+        # 凍結訓練
         # if step%2==0:
         #     backbone.trainable = False
         #     shared_layer.trainable = False

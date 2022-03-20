@@ -4,17 +4,17 @@ import cv2
 import numpy as np
 import sys
 
-from tfswin.ape import AbsoluteEmbedding
-from tfswin.basic import BasicLayer
 from tfswin.embed import PatchEmbedding
-from tfswin.merge import PatchMerging
-from tfswin.norm import LayerNorm
 
 
 image_size = [224, 224]
 keypoints = 21
 # 要載入的模型
+<<<<<<< HEAD
 model_name = 'weights\custom_model_v3.6_vtouch_b32_data_v4-2.h5'
+=======
+model_name = 'weights\custom_model_v3.6.2_vtouch.h5'
+>>>>>>> df9ec609a0c26ee584a6ed23c51002ec35c61726
 
 actions = np.array(['open', 'fist', 'one', 'two', 'three', 'four', 'six','eight', 'nine', 'ok', 'check', 'like', 'middel', 'yo'])
 
@@ -25,6 +25,8 @@ if len(physical_devices) > 0:
 # 載入模型和權重
 custom_model = tf.keras.models.load_model(model_name, custom_objects={"TFSwin>PatchEmbedding": PatchEmbedding}, compile=False)
 print(custom_model.summary())
+
+custom_model.summary()
 
 def show_result(eval_image, model_outputs):
 
@@ -53,11 +55,11 @@ def show_result(eval_image, model_outputs):
         # 取最大的值
         max_val = max(pred_gesture)
 
-        
         gesture_index = pred_gesture.index(max_val)
         #print(gesture_index)
 
         gesture_text = actions[gesture_index]
+
         # 顯示當前手勢的種類
         cv2.putText(eval_image, gesture_text, (10, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 255), 1, cv2.LINE_AA)
 
@@ -79,7 +81,7 @@ def show_result(eval_image, model_outputs):
 
 
 # 取得相機
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -108,8 +110,6 @@ while cap.isOpened(): # 不要使用 while true
         hand_img = hand_img[128:352, 208:432]
 
         #print(hand_img.shape)
-
-        
 
         tf_hand_img = tf.convert_to_tensor(hand_img, dtype=tf.float32)
 

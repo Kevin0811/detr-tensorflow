@@ -19,7 +19,7 @@ dataset = 'frei'
 version = 'v2.7'
 waiting4header = False
 load_pretrained = False
-pretrained_model_name = 'weights\custom_model_v25_frei.h5'
+pretrained_model_name = 'weights\custom_model_v2.5_frei.h5'
 
 training_epoch = 100
 print_step = 200
