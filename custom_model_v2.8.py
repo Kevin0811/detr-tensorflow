@@ -3,27 +3,52 @@ import time
 import numpy as np
 import datetime
 
-import tensorboard
-
 from detr_tf.loss.loss import new_get_losses
 from detr_tf.data.tfcsv import load_new_frei_dataset
 
 from tfswin import SwinTransformerTiny224
 
+# 讀取參數
+import argparse
+parser = argparse.ArgumentParser(description='Custom model')
+# 批次大小
+parser.add_argument('-s','--batch_size', default=8, type=int, dest='batch_size', help='Batch size')
+# 訓練次數
+parser.add_argument('-e','--epoch', default=100, type=int, dest='epoch', help='the number of passes of the entire training dataset')
+# 選擇骨幹層網路
+parser.add_argument('-b','--backbone', default='ResNet', type=str, dest='backbone_type', help='ResNet or SwinTransformer or MobileNet')
+
+# 預訓練權重檔案位置
+parser.add_argument('-p','--path', default=None, type=str, dest='path', help='path of the pretrained weight')
+# 預訓練權重檔案位置
+parser.add_argument('-w','--wait', default=False, type=bool, dest='waiting4header', help='Wait until the loss value is < 0.5, restart training pretrained layer')
+
+# 解析參數(轉換格式)
+args = parser.parse_args()
+args = vars(args)
+
+# 將參數帶入變數
+batch_size = args['batch_size']
+training_epoch = args['epoch']
+backbone_type = args['backbone_type']
+pretrained_model_path = args['path']
+waiting4header = args['waiting4header']
+
 # 相關變數
 image_size = [224, 224]
 keypoints = 21
-batch_size = 8
+print_step = int(1600/batch_size)
+
 dataset = 'Frei_vTouch'
 version = 'v2.8'
-waiting4header = False
-load_pretrained = False
-pretrained_model_name = 'weights\custom_model_v2.5_frei.h5'
 
-backbone_type = 'ResNet' # ResNet or SwinTransformer or MobileNet
+print('\n>>> Training Detial\n')
+print('{0:<20}'.format('Batch size:'), batch_size)
+print('{0:<20}'.format('Epoch:'), training_epoch)
+print('{0:<20}'.format('Backbone:'), backbone_type)
+print('{0:<20}'.format('Pretrain weight:'), pretrained_model_path)
+print('{0:<20}'.format('Waiting for header:'), waiting4header, '\n')
 
-training_epoch = 100
-print_step = 200
 
 # 設定 GPU
 physical_devices = tf.config.list_physical_devices('GPU')
@@ -36,8 +61,8 @@ image_input = tf.keras.Input((image_size[0], image_size[1], 3))
 
 # 骨幹層
 # 讀取預訓練權重 [new in v3.4]
-if load_pretrained: 
-    pretrained_model = tf.keras.models.load_model(pretrained_model_name, compile=False)
+if  pretrained_model_path is not None:
+    pretrained_model = tf.keras.models.load_model(pretrained_model_path, compile=False)
     backbone = pretrained_model.get_layer('Backbone_layer')
     # 先鎖定權重
     backbone.trainable = False
@@ -138,17 +163,15 @@ custom_model = tf.keras.Model(image_input, outputs, name="custom_model")
 # 印出架構
 custom_model.summary()
 
-backbone_initial_lr = 0.00025
-mask_initial_lr = 0.0001
-shared_initial_lr = 0.00002
-pos_initial_lr = 0.00025
-gesture_initial_lr = 0.00002
+backbone_initial_lr = 2.5e-5
+mask_initial_lr = 1e-4
+shared_initial_lr = 1e-5
+pos_initial_lr = 2.5e-4
 
-backbone_end_lr =  5e-5
+backbone_end_lr =  2.5e-6
 mask_end_lr = 1e-5
 shared_end_lr = 1e-6
-pos_end_lr = 5e-5
-gesture_end_lr = 1e-6
+pos_end_lr = 2.5e-5
 
 # 優化器
 backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=backbone_initial_lr)
@@ -171,7 +194,7 @@ print("Valid Dataset Length:", tf.data.experimental.cardinality(valid_dt).numpy(
 
 # 紀錄
 current_time = datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
-train_summary_writer = tf.summary.create_file_writer('logs/v2/'+ backbone_type +'+mask+keypoint+shared' + version + '-' + dataset + '-' + current_time)
+train_summary_writer = tf.summary.create_file_writer('logs/'+ backbone_type + version + '-' + dataset + '-' + current_time)
 
 #with train_summary_writer.as_default():
 #    tf.summary.graph(custom_model.get_concrete_model().graph)

@@ -44,7 +44,7 @@ gesture_cnt = 14
 print_step = int(1600/batch_size)
 
 dataset = 'vTouch'
-version = 'v3.7'
+version = 'v3.7_gesture_mask'
 
 print('\n>>> Training Detial\n')
 print('{0:<20}'.format('Batch size:'), batch_size)
@@ -71,12 +71,10 @@ if pretrained_model_path is not None: # 讀取預訓練權重 [new in v3.4]
     backbone = pretrained_model.get_layer('Backbone_layer')
     mask_layer = pretrained_model.get_layer('Mask_layer')
     shared_layer = pretrained_model.get_layer('Shared_layer')
-    pos_layer = pretrained_model.get_layer('Position_layer')
     
     backbone.trainable = False
     mask_layer.trainable = False
     shared_layer.trainable = False
-    pos_layer.trainable = False
 
 # Swin Transformer
 elif backbone_type=='SwinTransformer':
@@ -137,12 +135,6 @@ elif backbone_type=='MobileNet':
 else:
     print('Error while building Backbone Layer')
 
-# 前饋神經網路 + dropout (用於回歸手部關鍵點)
-pos_layer = tf.keras.models.Sequential([
-            tf.keras.layers.Dense(128, activation="relu"), # [new in v3.2]
-            tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
-            ], name="Position_layer")
-
 # 上採樣 + transpose (用於語意分割)
 # [new in v2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
 mask_layer = tf.keras.models.Sequential([
@@ -168,12 +160,10 @@ featuremap = backbone(image_input)
 mask_preds = mask_layer(featuremap)
 
 shared_outputs = shared_layer(featuremap)
-pos_preds = pos_layer(shared_outputs)
 gesture_preds = gesture_layer(shared_outputs)
 
 # 輸出資料結構
 outputs = {
-    'pred_pos': pos_preds,
     'pred_mask': mask_preds,
     'pred_gesture': gesture_preds
 }
@@ -186,20 +176,17 @@ custom_model.summary()
 backbone_initial_lr = 2.5e-5
 mask_initial_lr = 1e-4
 shared_initial_lr = 1e-5
-pos_initial_lr = 2.5e-4
 gesture_initial_lr = 1e-5
 
 backbone_end_lr =  2.5e-6
 mask_end_lr = 1e-5
 shared_end_lr = 1e-6
-pos_end_lr = 2.5e-5
 gesture_end_lr = 1e-6
 
 # 優化器
 backbone_optimizer = tf.keras.optimizers.Adam(learning_rate=backbone_initial_lr)
 mask_optimizer = tf.keras.optimizers.Adam(learning_rate=mask_initial_lr)
 shared_optimizer = tf.keras.optimizers.Adam(learning_rate=shared_initial_lr)
-pos_optimizer = tf.keras.optimizers.Adam(learning_rate=pos_initial_lr)
 gesture_optimizer = tf.keras.optimizers.Adam(learning_rate=gesture_initial_lr)
 
 # 載入資料集
@@ -293,7 +280,6 @@ for epoch_nb in range(training_epoch):
     # Assing learning_rate 調整學習率
     backbone_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, backbone_initial_lr, backbone_end_lr, training_epoch))
     mask_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, mask_initial_lr, mask_end_lr, training_epoch))
-    pos_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, pos_initial_lr, pos_end_lr, training_epoch))
     gesture_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, gesture_initial_lr, gesture_end_lr, training_epoch))
     shared_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, shared_initial_lr, shared_end_lr, training_epoch))
 
@@ -301,7 +287,6 @@ for epoch_nb in range(training_epoch):
     with train_summary_writer.as_default():
         tf.summary.scalar('Backbone learning rate', backbone_optimizer.learning_rate, total_train_step)
         tf.summary.scalar('Mask learning rate', mask_optimizer.learning_rate, total_train_step)
-        tf.summary.scalar('Position learning rate', pos_optimizer.learning_rate, total_train_step)
         tf.summary.scalar('Gesture learning rate', gesture_optimizer.learning_rate, total_train_step)
         tf.summary.scalar('Shared learning rate', shared_optimizer.learning_rate, total_train_step)
 
@@ -329,23 +314,20 @@ for epoch_nb in range(training_epoch):
         # 取得權重
         backbone_weights = custom_model.get_layer("Backbone_layer").trainable_variables
         mask_weights = custom_model.get_layer("Mask_layer").trainable_variables
-        pos_weights = custom_model.get_layer("Position_layer").trainable_variables
         gesture_weights = custom_model.get_layer("Gesture_layer").trainable_variables
         shared_weights = custom_model.get_layer("Shared_layer").trainable_variables
 
         # 計算梯度
         backbone_grads = tape.gradient(loss_value, backbone_weights)
         mask_grads = tape.gradient(aux_loss, mask_weights)
-        pos_grads = tape.gradient(crds_loss, pos_weights)
         gesture_grads = tape.gradient(gesture_loss, gesture_weights)
-        shared_grads = tape.gradient(shared_loss, shared_weights)
+        shared_grads = tape.gradient(gesture_loss, shared_weights)
 
         del tape
 
         # 更新權重
         backbone_optimizer.apply_gradients(zip(backbone_grads, backbone_weights))
         mask_optimizer.apply_gradients(zip(mask_grads, mask_weights))
-        pos_optimizer.apply_gradients(zip(pos_grads, pos_weights))
         gesture_optimizer.apply_gradients(zip(gesture_grads, gesture_weights))
         shared_optimizer.apply_gradients(zip(shared_grads, shared_weights))
         
@@ -369,7 +351,6 @@ for epoch_nb in range(training_epoch):
                 backbone.trainable = False
                 mask_layer.trainable = False
                 shared_layer.trainable = False
-                pos_layer.trainable = False
                 waiting4header = False
                 print("Start training locked layers")
             
