@@ -10,11 +10,7 @@ from tfswin.embed import PatchEmbedding
 image_size = [224, 224]
 keypoints = 21
 # 要載入的模型
-<<<<<<< HEAD
-model_name = 'weights\custom_model_v3.6_vtouch_b32_data_v4-2.h5'
-=======
 model_name = 'weights\custom_model_v3.6.2_vtouch.h5'
->>>>>>> df9ec609a0c26ee584a6ed23c51002ec35c61726
 
 actions = np.array(['open', 'fist', 'one', 'two', 'three', 'four', 'six','eight', 'nine', 'ok', 'check', 'like', 'middel', 'yo'])
 
