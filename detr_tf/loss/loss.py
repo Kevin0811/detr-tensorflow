@@ -39,32 +39,34 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
 
     total_loss = 0
     aux_losses = 0 # ?
-    crds_loss = None
-    gesture_loss = None
+    crds_loss = 0
+    gesture_loss = 0
     gesture_accuracy = 0
-    shared_loss = None
+    shared_loss = 0
     #print(image_size)
 
-    # 調整 Predicted KeyPoints 的維度 
-    # [batch size, total number of keypoints(=21)*2(=x, y)] → [batch_size, total number of keypoints(21), 2(=x, y)]
-    pos_preds = tf.reshape(m_outputs['pred_pos'],[batch_size, keypoints, 2])
 
-    #pos_preds = tf.math.multiply(pos_preds, tf.cast(image_size, tf.float32))
-    #pos_preds =  m_outputs['pred_pos']
-    #print(skeleton_lable)
+    # KeyPoints Coordinates Loss: Mean Square Error
+    if "pred_pos" in m_outputs:
+        # 調整 Predicted KeyPoints 的維度 
+        # [batch size, total number of keypoints(=21)*2(=x, y)] → [batch_size, total number of keypoints(21), 2(=x, y)]
+        pos_preds = tf.reshape(m_outputs['pred_pos'],[batch_size, keypoints, 2])
 
-    # Ground Truth KeyPoints 標準化(x, y 座標 ÷ 圖片長寬)
-    skeleton_lable = tf.math.divide(skeleton_lable, tf.cast(image_size, tf.float32))
-    #skeleton_lable = tf.reshape(skeleton_lable,[batch_size, keypoints*2])
+        #pos_preds = tf.math.multiply(pos_preds, tf.cast(image_size, tf.float32))
+        #pos_preds =  m_outputs['pred_pos']
+        #print(skeleton_lable)
 
-    # KeyPoints Loss
-    crds_loss = get_crds_losses(pos_preds, skeleton_lable)
+        # Ground Truth KeyPoints 標準化(x, y 座標 ÷ 圖片長寬)
+        skeleton_lable = tf.math.divide(skeleton_lable, tf.cast(image_size, tf.float32))
+        #skeleton_lable = tf.reshape(skeleton_lable,[batch_size, keypoints*2])
 
-    total_loss += crds_loss*0.1
-    shared_loss = crds_loss*0.1
+        # KeyPoints Loss
+        crds_loss = get_crds_losses(pos_preds, skeleton_lable)
 
-    # Segmentation Loss
-    # Get auxiliary loss for each auxiliary output
+        total_loss += crds_loss*0.1
+        shared_loss += crds_loss*0.1
+
+    # Segmentation Loss (auxiliary loss): Soft dice coefficient
     if "pred_mask" in m_outputs:
         for num, pred_mask in enumerate(m_outputs["pred_mask"]):
 
@@ -77,6 +79,7 @@ def new_get_losses(m_outputs, skeleton_lable, gesture_label, batch_size, keypoin
         aux_losses = aux_losses/batch_size
         total_loss += aux_losses*0.4
 
+    # Gesture Classification Loss: SparseCategoricalCrossentropy
     if "pred_gesture" in m_outputs:
         scce = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False) # 若最後一層有 softmax，則設為 False
         gesture_loss = scce(gesture_label, m_outputs["pred_gesture"])
