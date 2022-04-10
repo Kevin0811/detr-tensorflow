@@ -3,81 +3,157 @@ import time
 import numpy as np
 import datetime
 
-import tensorboard
-
-from detr_tf.networks.resnet_backbone import ResNet50Backbone
 from detr_tf.loss.loss import new_get_losses
 from detr_tf.data.tfcsv import load_vtouch_dataset
 
-from tfswin import SwinTransformerTiny224
+# 命名
+# crds = position = keypoints = pos
+# aux = mask
+# gesture
+
+# 讀取參數
+import argparse
+parser = argparse.ArgumentParser(description='Custom model')
+# 批次大小
+parser.add_argument('-s','--batch_size', default=8, type=int, dest='batch_size', help='Batch size')
+# 訓練次數
+parser.add_argument('-e','--epoch', default=100, type=int, dest='epoch', help='the number of passes of the entire training dataset')
+# 選擇骨幹層網路
+parser.add_argument('-b','--backbone', default='ResNet', type=str, dest='backbone_type', help='ResNet or SwinTransformer or MobileNet')
+
+# 預訓練權重檔案位置
+parser.add_argument('-p','--path', default=None, type=str, dest='path', help='path of the pretrained weight')
+# 預訓練權重檔案位置
+parser.add_argument('-w','--wait', default=False, type=bool, dest='waiting4header', help='Wait until the loss value is < 0.5, restart training pretrained layer')
+
+# 解析參數(轉換格式)
+args = parser.parse_args()
+args = vars(args)
+
+# 將參數帶入變數
+batch_size = args['batch_size']
+training_epoch = args['epoch']
+backbone_type = args['backbone_type']
+pretrained_model_path = args['path']
+waiting4header = args['waiting4header']
 
 # 相關變數
 image_size = [224, 224]
 keypoints = 21
-batch_size = 32
-dataset = 'vtouch'
-version = 'v3.6.1'
-waiting4header = False
-load_pretrained = False
-pretrained_model_name = 'weights\custom_model_v2.7_frei.h5'
-
-training_epoch = 100
-print_step = 20
 gesture_cnt = 14
+print_step = int(1600/batch_size)
+
+dataset = 'vTouch'
+version = 'v3.7'
+
+print('\n>>> Training Detial\n')
+print('{0:<20}'.format('Batch size:'), batch_size)
+print('{0:<20}'.format('Epoch:'), training_epoch)
+print('{0:<20}'.format('Backbone:'), backbone_type)
+print('{0:<20}'.format('Pretrain weight:'), pretrained_model_path)
+print('{0:<20}'.format('Waiting for header:'), waiting4header, '\n')
+
 
 # 設定 GPU
 physical_devices = tf.config.list_physical_devices('GPU')
-
+if len(physical_devices) > 0:
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 圖片輸入層
 image_input = tf.keras.Input((image_size[0], image_size[1], 3))
 
 # 骨幹層
-if load_pretrained: # 讀取預訓練權重 [new in v3.4]
-    pretrained_model = tf.keras.models.load_model(pretrained_model_name, compile=False)
+if pretrained_model_path is not None: # 讀取預訓練權重 [new in v3.4]
+    pretrained_model = tf.keras.models.load_model(pretrained_model_path, compile=False)
+
+    layer_name = [layer.name for layer in pretrained_model.layers]
+
     backbone = pretrained_model.get_layer('Backbone_layer')
     mask_layer = pretrained_model.get_layer('Mask_layer')
     shared_layer = pretrained_model.get_layer('Shared_layer')
     pos_layer = pretrained_model.get_layer('Position_layer')
-
-    # 鎖定權重
+    
     backbone.trainable = False
+    mask_layer.trainable = False
     shared_layer.trainable = False
+    pos_layer.trainable = False
 
-    waiting4header = True
-else:
+# Swin Transformer
+elif backbone_type=='SwinTransformer':
+
+    from tfswin import SwinTransformerTiny224
+    
     backbone = tf.keras.models.Sequential([
                 SwinTransformerTiny224(include_top=False)
                 ], name="Backbone_layer")
-
     # 回歸與分類共用層
-    # [new in v3.1] 將回歸網路和分類網路的上層部分共用
-    # [new in v3.2] 增加共用層的比例
     shared_layer = tf.keras.models.Sequential([
-                # 加入 tf.keras.layersGlobalAveragePooling2D
-                tf.keras.layers.GlobalAveragePooling2D(),
-                tf.keras.layers.Dense(512, activation="relu"),
-                tf.keras.layers.Dropout(0.2),
-                tf.keras.layers.Dense(265, activation="relu"),
-                ], name="Shared_layer")
-
-    # 前饋神經網路 + dropout (用於回歸手部關鍵點)
-    pos_layer = tf.keras.models.Sequential([
-                tf.keras.layers.Dense(128, activation="relu"), # [new in v3.2]
-                tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
-                ], name="Position_layer")
+               # 加入 tf.keras.layersGlobalAveragePooling2D
+               tf.keras.layers.GlobalAveragePooling2D(),
+               tf.keras.layers.Dense(512, activation="relu"),
+               tf.keras.layers.Dropout(0.2),
+               tf.keras.layers.Dense(512, activation="relu"),
+               ], name="Shared_layer")
+# ResNet
+elif backbone_type=='ResNet':
     
-    # 上採樣 + transpose (用於語意分割)
-    # [new in v2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
-    mask_layer = tf.keras.models.Sequential([
-                tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=4, activation="relu"),
-                tf.keras.layers.UpSampling2D(size=(2, 2)),
-                tf.keras.layers.Conv2DTranspose(filters=128, kernel_size=5, activation="relu"),
-                tf.keras.layers.UpSampling2D(size=(3, 3)),
-                tf.keras.layers.Conv2DTranspose(filters=32, kernel_size=3, activation="relu"),
-                tf.keras.layers.UpSampling2D(size=(3, 3)),
-                tf.keras.layers.Conv2DTranspose(filters=1, kernel_size=3, activation="sigmoid"),
-                ], name="Mask_layer")
+    resnet = tf.keras.applications.resnet50.ResNet50(include_top=False, 
+                                                 weights=None, 
+                                                 input_tensor=image_input,
+                                                 input_shape=(image_size[0], image_size[1], 3), 
+                                                 pooling=None)
+    backbone = tf.keras.models.Sequential([
+                resnet
+                ], name="Backbone_layer")
+    # 回歸與分類共用層
+    shared_layer = tf.keras.models.Sequential([
+            tf.keras.layers.Conv2D(filters=64, kernel_size=1, activation='relu'),
+            tf.keras.layers.MaxPool2D((2,2)),
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(512, activation="relu"),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(512, activation="relu"),
+            ], name="Shared_layer")
+# MobileNet
+elif backbone_type=='MobileNet':
+    
+    mobilenet = tf.keras.applications.MobileNetV3Large(input_shape=(image_size[0], image_size[1], 3), 
+                                                  alpha=1.0, 
+                                                  minimalistic=False, 
+                                                  include_top=False,
+                                                  weights=None, 
+                                                  input_tensor=image_input, 
+                                                  pooling=None)
+    backbone = tf.keras.models.Sequential([
+                mobilenet
+                ], name="Backbone_layer")
+    # 回歸與分類共用層
+    shared_layer = tf.keras.models.Sequential([
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(512, activation="relu"),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(512, activation="relu"),
+            ], name="Shared_layer")
+else:
+    print('Error while building Backbone Layer')
+
+# 前饋神經網路 + dropout (用於回歸手部關鍵點)
+pos_layer = tf.keras.models.Sequential([
+            tf.keras.layers.Dense(128, activation="relu"), # [new in v3.2]
+            tf.keras.layers.Dense(keypoints*2, activation="sigmoid"), # change
+            ], name="Position_layer")
+
+# 上採樣 + transpose (用於語意分割)
+# [new in v2.6] 調整過的上採樣層，直接輸出原圖大小(224*224)
+mask_layer = tf.keras.models.Sequential([
+            tf.keras.layers.Conv2DTranspose(filters=512, kernel_size=4, activation="relu"),
+            tf.keras.layers.UpSampling2D(size=(2, 2)),
+            tf.keras.layers.Conv2DTranspose(filters=128, kernel_size=5, activation="relu"),
+            tf.keras.layers.UpSampling2D(size=(3, 3)),
+            tf.keras.layers.Conv2DTranspose(filters=32, kernel_size=3, activation="relu"),
+            tf.keras.layers.UpSampling2D(size=(3, 3)),
+            tf.keras.layers.Conv2DTranspose(filters=1, kernel_size=3, activation="sigmoid"),
+            ], name="Mask_layer")
 
 # 前饋神經網路 + dropout (用於分類手勢)
 gesture_layer = tf.keras.models.Sequential([
@@ -142,15 +218,13 @@ print("Valid Dataset Length:", tf.data.experimental.cardinality(valid_dt).numpy(
 #writer = SummaryWriter('logs/k4b-1')
 current_time = datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
 #train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
-train_summary_writer = tf.summary.create_file_writer('logs/v3/swintrans+mask+gesture+shared' + version + '-' + dataset + '-' + current_time)
+train_summary_writer = tf.summary.create_file_writer('logs/v3/'+ backbone_type +'+mask+keypoint+gesture' + version + '-' + dataset + '-' + current_time)
 
-#with train_summary_writer.as_default():
-#    tf.summary.graph(custom_model.get_concrete_model().graph)
 
 total_train_step = 0
 total_val_step = 0
 avg_loss = 0
-#avg_loss_array = []
+
 
 # 執行驗證
 def validation(val_model, val_data, val_step):
@@ -178,15 +252,6 @@ def validation(val_model, val_data, val_step):
         val_avg_gesture_loss += val_gesture_loss
         val_avg_shared_loss += val_shared_loss
         val_avg_gesture_acc += val_gesture_acc
-
-        # 紀錄損失值 
-        with train_summary_writer.as_default():
-            tf.summary.scalar('val_loss', val_loss, val_step)
-            tf.summary.scalar('val_crds_loss', val_crds_loss, val_step)
-            tf.summary.scalar('val_aux_loss', val_aux_loss, val_step)
-            tf.summary.scalar('val_gesture_loss', val_gesture_loss, val_step)
-            tf.summary.scalar('val_shared_loss', val_shared_loss, val_step)
-            tf.summary.scalar('val_gesture_acc', val_gesture_acc, val_step)
     
     val_avg_loss = val_avg_loss/data_len
     val_avg_crds_loss = val_avg_crds_loss/data_len
@@ -194,6 +259,15 @@ def validation(val_model, val_data, val_step):
     val_avg_gesture_loss = val_avg_gesture_loss/data_len
     val_avg_shared_loss = val_avg_shared_loss/data_len
     val_avg_gesture_acc = val_avg_gesture_acc/data_len
+
+    # 紀錄損驗證資料集的平均失值值
+    with train_summary_writer.as_default():
+        tf.summary.scalar('val_avg_loss', val_avg_loss, total_train_step)
+        tf.summary.scalar('val_avg_crds_loss', val_avg_crds_loss, total_train_step)
+        tf.summary.scalar('val_avg_aux_loss', val_avg_aux_loss, total_train_step)
+        tf.summary.scalar('val_avg_gesture_loss', val_avg_gesture_loss, total_train_step)
+        tf.summary.scalar('val_avg_shared_loss', val_avg_shared_loss, total_train_step)
+        tf.summary.scalar('val_avg_gesture_acc', val_avg_gesture_acc, total_train_step)
     
     print('\r>>> Validation Compeleted\n')
     print(f"Results: average loss : [{val_avg_loss:.3f}], crd loss : [{val_avg_crds_loss:.3f}], aux loss : [{val_avg_aux_loss:.3f}], gesture loss : [{val_avg_gesture_loss:.3f}]\n")
@@ -204,6 +278,8 @@ def decayed_learning_rate(step, initial_learning_rate, end_learning_rate, decay_
     step = min(step, decay_steps)
     return ((initial_learning_rate - end_learning_rate)*(1 - step / decay_steps) ** (power)) + end_learning_rate
 
+if backbone_type=='MobileNet':
+    tf.keras.backend.set_learning_phase(True)
 
 # 進行訓練
 for epoch_nb in range(training_epoch):
@@ -290,10 +366,12 @@ for epoch_nb in range(training_epoch):
             # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
             # 則在訓練前半段先鎖定其權重，待至其他網路收斂後再一起加入訓練
             if waiting4header and avg_loss < 0.5:
-                backbone.trainable = True
-                shared_layer.trainable = True
+                backbone.trainable = False
+                mask_layer.trainable = False
+                shared_layer.trainable = False
+                pos_layer.trainable = False
                 waiting4header = False
-                print("Start training backbone and shared_layer")
+                print("Start training locked layers")
             
             time_counter = time.time()
             total_loss = 0

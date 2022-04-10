@@ -93,7 +93,7 @@ def validation(val_model, val_data, val_step):
         # 執行估計
         val_output = val_model(images)
         # 計算損失值(MSE誤差)
-        val_loss_value, coords_loss ,aux_loss= new_get_losses(val_output, skeleton_lable, batch_size, keypoints, image_size)
+        val_loss_value, val_crds_loss ,val_aux_loss, val_gesture_loss, val_shared_loss, val_gesture_acc= new_get_losses(val_output, skeleton_lable, None,  batch_size, keypoints, image_size, mask)
 
         val_avg_loss += val_loss_value
 
@@ -139,7 +139,7 @@ for epoch_nb in range(training_epoch):
             # 估計
             model_output = custom_model(images)
             # 計算損失值
-            loss_value, coords_loss ,aux_loss = new_get_losses(model_output, skeleton_lable, batch_size, keypoints, image_size)
+            loss_value, crds_loss ,aux_loss, gesture_loss, shared_loss, gesture_acc = new_get_losses(model_output, skeleton_lable, None, batch_size, keypoints, image_size, mask)
 
             total_loss += loss_value
             
