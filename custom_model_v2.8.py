@@ -201,29 +201,44 @@ train_summary_writer = tf.summary.create_file_writer('logs/'+ backbone_type + ve
 
 total_train_step = 0
 total_val_step = 0
-avg_loss = 0
 
 # 執行驗證
 def validation(val_model, val_data, val_step):
     print('\n>>> Start Validation', end=' ')
 
     val_avg_loss = 0
+    val_avg_crds_loss = 0
+    val_avg_aux_loss = 0
+    val_avg_shared_loss = 0
+
+    data_len = len(val_data)
 
     for step , (images, skeleton_lable, mask) in enumerate(val_data):
         val_step += 1
         # 執行估計
         val_output = val_model(images)
         # 計算損失值(MSE誤差)
-        val_loss_value, val_crds_loss ,val_aux_loss,_ , val_shared_loss, val_gesture_acc = new_get_losses(val_output, skeleton_lable, None,  batch_size, keypoints, image_size, mask)
+        val_loss, val_crds_loss ,val_aux_loss, val_gesture_loss, val_shared_loss, val_gesture_acc = new_get_losses(val_output, skeleton_lable, None,  batch_size, keypoints, image_size, mask)
 
-        val_avg_loss += val_loss_value
+        val_avg_loss += val_loss
+        val_avg_crds_loss += val_crds_loss
+        val_avg_aux_loss += val_aux_loss
+        val_avg_shared_loss += val_shared_loss
+    
+    val_avg_loss = val_avg_loss/data_len
+    val_avg_crds_loss = val_avg_crds_loss/data_len
+    val_avg_aux_loss = val_avg_aux_loss/data_len
+    val_avg_shared_loss = val_avg_shared_loss/data_len
 
     # 紀錄損失值 
     with train_summary_writer.as_default():
-        tf.summary.scalar('val_loss', val_avg_loss/len(val_data), total_train_step)
+        tf.summary.scalar('val_avg_loss', val_avg_loss, total_train_step)
+        tf.summary.scalar('val_avg_crds_loss', val_avg_crds_loss, total_train_step)
+        tf.summary.scalar('val_avg_aux_loss', val_avg_aux_loss, total_train_step)
+        tf.summary.scalar('val_avg_shared_loss', val_avg_shared_loss, total_train_step)
     
     print('\r>>> Validation Compeleted\n')
-    print(f"Results: average loss : [{val_avg_loss/len(val_data):.3f}], crd loss : [{val_crds_loss:.3f}], aux loss : [{val_aux_loss:.3f}]\n")
+    print(f"Results: average loss : [{val_avg_loss/len(val_data):.5f}], crd loss : [{val_crds_loss:.5f}], aux loss : [{val_aux_loss:.5f}]\n")
     return val_step
 
 # 調整學習率(PolynomialDecay)
@@ -234,13 +249,17 @@ def decayed_learning_rate(step, initial_learning_rate, end_learning_rate, decay_
 if backbone_type=='MobileNet':
     tf.keras.backend.set_learning_phase(True)
 
+# Training
+total_loss = 0
+total_crds_loss = 0
+total_aux_loss = 0
+total_shared_loss = 0
+time_counter = time.time()
+
 # 進行訓練
 for epoch_nb in range(training_epoch):
     print("\n>>> Start of Epoch %d\n" % (epoch_nb,))
 
-    total_loss = 0
-    loss_value = 0
-    time_counter = time.time()
 
     # Assing learning_rate 調整學習率
     backbone_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, backbone_initial_lr, backbone_end_lr, training_epoch))
@@ -253,15 +272,6 @@ for epoch_nb in range(training_epoch):
     for step , (images, skeleton_lable, mask) in enumerate(train_dt):
         total_train_step += 1
 
-        # [new in v3.3] 分段訓練
-        # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
-        # 則在訓練前半段先鎖定其權重，待至其他網路收斂後再一起加入訓練
-        if waiting4header and step > 1 and loss_value < 3:
-            backbone_learning_rate = 0.00005
-            backbone.trainable = True
-            waiting4header = False
-            print("Start training backbone")
-
         with tf.GradientTape(persistent=True) as tape:
             # 估計
             model_output = custom_model(images)
@@ -269,13 +279,6 @@ for epoch_nb in range(training_epoch):
             loss_value, crds_loss ,aux_loss, gesture_loss, shared_loss, gesture_acc = new_get_losses(model_output, skeleton_lable, None, batch_size, keypoints, image_size, mask)
 
             total_loss += loss_value
-            
-            with train_summary_writer.as_default():
-                # 紀錄損失值
-                tf.summary.scalar('total_loss', loss_value, total_train_step)
-                tf.summary.scalar('crds_loss', crds_loss, total_train_step)
-                tf.summary.scalar('aux_loss', aux_loss, total_train_step)
-                tf.summary.scalar('shared_loss', shared_loss, total_train_step)
 
         # 取得權重
         backbone_weights = custom_model.get_layer("Backbone_layer").trainable_variables
@@ -303,15 +306,33 @@ for epoch_nb in range(training_epoch):
             elapsed = time.time() - time_counter
             # 計算 將此 step 區間的平均損失值
             avg_loss = total_loss/print_step
+            avg_crds_loss = total_crds_loss/print_step
+            avg_aux_loss = total_aux_loss/print_step
+            avg_shared_loss = total_shared_loss/print_step
+
+            total_loss = 0
+            total_crds_loss = 0
+            total_aux_loss = 0
+            total_shared_loss = 0
+            time_counter = time.time()
 
             # 紀錄平均損失值
             with train_summary_writer.as_default():
                 tf.summary.scalar('avg_loss', avg_loss, total_train_step)
+                tf.summary.scalar('avg_crds_loss', avg_crds_loss, total_train_step)
+                tf.summary.scalar('avg_aux_loss', avg_aux_loss, total_train_step)
+                tf.summary.scalar('avg_shared_loss', avg_shared_loss, total_train_step)
+
             # 印出資料
             print(f"Epoch: [{epoch_nb}], Step: [{step}], time : [{elapsed:.2f}], average loss : [{avg_loss:.5f}]")
             
-            time_counter = time.time()
-            total_loss = 0
+            # [new in v3.3] 分段訓練
+            # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
+            # 則在訓練前半段先鎖定其權重，待至其他網路收斂後再一起加入訓練
+            if waiting4header and step > 1 and loss_value < 3:
+                backbone.trainable = True
+                waiting4header = False
+                print("Start training locked layers")
 
     # 驗證
     total_val_step = validation(custom_model, valid_dt, total_val_step)

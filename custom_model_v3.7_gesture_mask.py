@@ -207,11 +207,8 @@ current_time = datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
 #train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
 train_summary_writer = tf.summary.create_file_writer('logs/'+ backbone_type + version + '-' + dataset + '-' + current_time)
 
-
 total_train_step = 0
 total_val_step = 0
-avg_loss = 0
-
 
 # 執行驗證
 def validation(val_model, val_data, val_step):
@@ -257,7 +254,7 @@ def validation(val_model, val_data, val_step):
         tf.summary.scalar('val_avg_gesture_acc', val_avg_gesture_acc, total_train_step)
     
     print('\r>>> Validation Compeleted\n')
-    print(f"Results: average loss : [{val_avg_loss:.3f}], crd loss : [{val_avg_crds_loss:.3f}], aux loss : [{val_avg_aux_loss:.3f}], gesture loss : [{val_avg_gesture_loss:.3f}]\n")
+    print(f"Results: val average loss : [{val_avg_loss:.5f}], val gesture acc : [{val_avg_gesture_acc:.5f}]\n")
     return val_step
 
 # 調整學習率(PolynomialDecay)
@@ -268,14 +265,18 @@ def decayed_learning_rate(step, initial_learning_rate, end_learning_rate, decay_
 if backbone_type=='MobileNet':
     tf.keras.backend.set_learning_phase(True)
 
+# Training
+total_loss = 0
+total_crds_loss = 0
+total_aux_loss = 0
+total_gesture_loss = 0
+total_shared_loss = 0
+total_gesture_acc = 0
+time_counter = time.time()
+
 # 進行訓練
 for epoch_nb in range(training_epoch):
     print("\n>>> Start of Epoch %d\n" % (epoch_nb,))
-
-    # Training
-    total_loss = 0
-    loss_value = 0
-    time_counter = time.time()
 
     # Assing learning_rate 調整學習率
     backbone_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, backbone_initial_lr, backbone_end_lr, training_epoch))
@@ -284,11 +285,11 @@ for epoch_nb in range(training_epoch):
     shared_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, shared_initial_lr, shared_end_lr, training_epoch))
 
     # 紀錄學習率
-    with train_summary_writer.as_default():
-        tf.summary.scalar('Backbone learning rate', backbone_optimizer.learning_rate, total_train_step)
-        tf.summary.scalar('Mask learning rate', mask_optimizer.learning_rate, total_train_step)
-        tf.summary.scalar('Gesture learning rate', gesture_optimizer.learning_rate, total_train_step)
-        tf.summary.scalar('Shared learning rate', shared_optimizer.learning_rate, total_train_step)
+    #with train_summary_writer.as_default():
+    #    tf.summary.scalar('Backbone learning rate', backbone_optimizer.learning_rate, total_train_step)
+    #    tf.summary.scalar('Mask learning rate', mask_optimizer.learning_rate, total_train_step)
+    #    tf.summary.scalar('Gesture learning rate', gesture_optimizer.learning_rate, total_train_step)
+    #    tf.summary.scalar('Shared learning rate', shared_optimizer.learning_rate, total_train_step)
 
     # 1 step = <batch size> images
     for step , (images, skeleton_lable, mask, gesture_label) in enumerate(train_dt):
@@ -301,15 +302,12 @@ for epoch_nb in range(training_epoch):
             loss_value, crds_loss ,aux_loss, gesture_loss, shared_loss, gesture_acc = new_get_losses(model_output, skeleton_lable, gesture_label, batch_size, keypoints, image_size, mask)
 
             total_loss += loss_value
-
-            # 紀錄損失值
-            with train_summary_writer.as_default():
-                tf.summary.scalar('total_loss', loss_value, total_train_step)
-                tf.summary.scalar('crds_loss', crds_loss, total_train_step)
-                tf.summary.scalar('aux_loss', aux_loss, total_train_step)
-                tf.summary.scalar('gesture_loss', gesture_loss, total_train_step)
-                tf.summary.scalar('gesture_acc', gesture_acc, total_train_step)
-                tf.summary.scalar('shared_loss', shared_loss, total_train_step)
+            total_crds_loss += crds_loss
+            total_aux_loss += aux_loss
+            total_gesture_loss += gesture_loss
+            total_shared_loss += shared_loss
+            total_gesture_acc += gesture_acc
+            
 
         # 取得權重
         backbone_weights = custom_model.get_layer("Backbone_layer").trainable_variables
@@ -335,14 +333,34 @@ for epoch_nb in range(training_epoch):
         if step % print_step == 0 and step != 0:
             # 計算執行時間
             elapsed = time.time() - time_counter
+
             # 計算 將此 step 區間的平均損失值
             avg_loss = total_loss/print_step
+            avg_crds_loss = total_crds_loss/print_step
+            avg_aux_loss = total_aux_loss/print_step
+            avg_gesture_loss = total_gesture_loss/print_step
+            avg_gesture_acc = total_gesture_acc/print_step
+            avg_shared_loss = total_shared_loss/print_step
+
+            total_loss = 0
+            total_crds_loss = 0
+            total_aux_loss = 0
+            total_gesture_loss = 0
+            total_shared_loss = 0
+            total_gesture_acc = 0
+            time_counter = time.time()
 
             # 紀錄平均損失值
             with train_summary_writer.as_default():
                 tf.summary.scalar('avg_loss', avg_loss, total_train_step)
+                tf.summary.scalar('avg_crds_loss', avg_crds_loss, total_train_step)
+                tf.summary.scalar('avg_aux_loss', avg_aux_loss, total_train_step)
+                tf.summary.scalar('avg_gesture_loss', avg_gesture_loss, total_train_step)
+                tf.summary.scalar('avg_gesture_acc', avg_gesture_acc, total_train_step)
+                tf.summary.scalar('avg_shared_loss', avg_shared_loss, total_train_step)
+            
             # 印出資料
-            print(f"Epoch: [{epoch_nb}], Step: [{step}], time : [{elapsed:.2f}], average loss : [{avg_loss:.5f}]")
+            print(f"Epoch: [{epoch_nb}], Step: [{step}], time : [{elapsed:.2f}], average loss : [{avg_loss:.5f}], gesture accuracy : [{avg_gesture_acc:.5f}]")
 
             # [new in v3.3] 分段訓練
             # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
@@ -354,9 +372,6 @@ for epoch_nb in range(training_epoch):
                 waiting4header = False
                 print("Start training locked layers")
             
-            time_counter = time.time()
-            total_loss = 0
-
     # 驗證
     total_val_step = validation(custom_model, valid_dt, total_val_step)
 

@@ -220,11 +220,8 @@ current_time = datetime.datetime.now().strftime("%Y.%m.%d-%H.%M.%S")
 #train_log_dir = 'logs/gradient_tape/' + current_time + '/train'
 train_summary_writer = tf.summary.create_file_writer('logs/'+ backbone_type + version + '-' + dataset + '-' + current_time)
 
-
 total_train_step = 0
 total_val_step = 0
-avg_loss = 0
-
 
 # 執行驗證
 def validation(val_model, val_data, val_step):
@@ -270,7 +267,7 @@ def validation(val_model, val_data, val_step):
         tf.summary.scalar('val_avg_gesture_acc', val_avg_gesture_acc, total_train_step)
     
     print('\r>>> Validation Compeleted\n')
-    print(f"Results: average loss : [{val_avg_loss:.3f}], crd loss : [{val_avg_crds_loss:.3f}], aux loss : [{val_avg_aux_loss:.3f}], gesture loss : [{val_avg_gesture_loss:.3f}]\n")
+    print(f"Results: val average loss : [{val_avg_loss:.5f}], val gesture acc : [{val_avg_gesture_acc:.5f}]\n")
     return val_step
 
 # 調整學習率(PolynomialDecay)
@@ -281,14 +278,18 @@ def decayed_learning_rate(step, initial_learning_rate, end_learning_rate, decay_
 if backbone_type=='MobileNet':
     tf.keras.backend.set_learning_phase(True)
 
+# Training
+total_loss = 0
+total_crds_loss = 0
+total_aux_loss = 0
+total_gesture_loss = 0
+total_shared_loss = 0
+total_gesture_acc = 0
+time_counter = time.time()
+
 # 進行訓練
 for epoch_nb in range(training_epoch):
     print("\n>>> Start of Epoch %d\n" % (epoch_nb,))
-
-    # Training
-    total_loss = 0
-    loss_value = 0
-    time_counter = time.time()
 
     # Assing learning_rate 調整學習率
     backbone_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, backbone_initial_lr, backbone_end_lr, training_epoch))
@@ -353,14 +354,34 @@ for epoch_nb in range(training_epoch):
         if step % print_step == 0 and step != 0:
             # 計算執行時間
             elapsed = time.time() - time_counter
+
             # 計算 將此 step 區間的平均損失值
             avg_loss = total_loss/print_step
+            avg_crds_loss = total_crds_loss/print_step
+            avg_aux_loss = total_aux_loss/print_step
+            avg_gesture_loss = total_gesture_loss/print_step
+            avg_gesture_acc = total_gesture_acc/print_step
+            avg_shared_loss = total_shared_loss/print_step
+
+            total_loss = 0
+            total_crds_loss = 0
+            total_aux_loss = 0
+            total_gesture_loss = 0
+            total_shared_loss = 0
+            total_gesture_acc = 0
+            time_counter = time.time()
 
             # 紀錄平均損失值
             with train_summary_writer.as_default():
                 tf.summary.scalar('avg_loss', avg_loss, total_train_step)
+                tf.summary.scalar('avg_crds_loss', avg_crds_loss, total_train_step)
+                tf.summary.scalar('avg_aux_loss', avg_aux_loss, total_train_step)
+                tf.summary.scalar('avg_gesture_loss', avg_gesture_loss, total_train_step)
+                tf.summary.scalar('avg_gesture_acc', avg_gesture_acc, total_train_step)
+                tf.summary.scalar('avg_shared_loss', avg_shared_loss, total_train_step)
+            
             # 印出資料
-            print(f"Epoch: [{epoch_nb}], Step: [{step}], time : [{elapsed:.2f}], average loss : [{avg_loss:.5f}]")
+            print(f"Epoch: [{epoch_nb}], Step: [{step}], time : [{elapsed:.2f}], average loss : [{avg_loss:.5f}], gesture accuracy : [{avg_gesture_acc:.5f}]")
 
             # [new in v3.3] 分段訓練
             # 依據 Tensorflow 官方指引，若骨幹網路使用預訓練權重
