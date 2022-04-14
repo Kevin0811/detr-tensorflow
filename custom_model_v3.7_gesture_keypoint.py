@@ -258,18 +258,17 @@ def decayed_learning_rate(step, initial_learning_rate, end_learning_rate, decay_
 if backbone_type=='MobileNet':
     tf.keras.backend.set_learning_phase(True)
 
-# Training
-total_loss = 0
-total_crds_loss = 0
-total_aux_loss = 0
-total_gesture_loss = 0
-total_shared_loss = 0
-total_gesture_acc = 0
-time_counter = time.time()
-
 # 進行訓練
 for epoch_nb in range(training_epoch):
     print("\n>>> Start of Epoch %d\n" % (epoch_nb,))
+
+    total_loss = 0
+    total_crds_loss = 0
+    total_aux_loss = 0
+    total_gesture_loss = 0
+    total_shared_loss = 0
+    total_gesture_acc = 0
+    time_counter = time.time()
 
     # Assing learning_rate 調整學習率
     backbone_optimizer.learning_rate.assign(decayed_learning_rate(epoch_nb, backbone_initial_lr, backbone_end_lr, training_epoch))

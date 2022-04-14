@@ -10,7 +10,7 @@ from tfswin.embed import PatchEmbedding
 image_size = [224, 224]
 keypoints = 21
 # 要載入的模型
-model_name = 'weights\custom_model_v3.6.2_vtouch.h5'
+model_name = 'weights\custom_model_v2.8_Frei_vTouch.h5'
 
 actions = np.array(['open', 'fist', 'one', 'two', 'three', 'four', 'six','eight', 'nine', 'ok', 'check', 'like', 'middel', 'yo'])
 
@@ -59,16 +59,18 @@ def show_result(eval_image, model_outputs):
         # 顯示當前手勢的種類
         cv2.putText(eval_image, gesture_text, (10, 120), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 255), 1, cv2.LINE_AA)
 
-    # 讀取模型預測位置 (數值介於0~1)
-    pred_pos = np.array(model_outputs['pred_pos'])
-    # 轉換為像素位置
-    pred_skeleton_lable = np.multiply(pred_pos, 224)
-    lable = np.reshape(pred_skeleton_lable, (keypoints,2))
+    # 顯示手勢辨識結果
+    if "pred_pos" in model_outputs:
+        # 讀取模型預測位置 (數值介於0~1)
+        pred_pos = np.array(model_outputs['pred_pos'])
+        # 轉換為像素位置
+        pred_skeleton_lable = np.multiply(pred_pos, 224)
+        lable = np.reshape(pred_skeleton_lable, (keypoints,2))
 
-    # 將關鍵點放上圖片
-    for coords in lable:
-        eval_image = cv2.circle(eval_image, (round(coords[0]),round(coords[1])), 2, (255, 0, 0), -1)
-        #print(round(coords[0]),round(coords[1]))
+        # 將關鍵點放上圖片
+        for coords in lable:
+            eval_image = cv2.circle(eval_image, (round(coords[0]),round(coords[1])), 2, (255, 0, 0), -1)
+            #print(round(coords[0]),round(coords[1]))
 
 
     # 儲存帶有關鍵點的圖片
@@ -77,7 +79,7 @@ def show_result(eval_image, model_outputs):
 
 
 # 取得相機
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
