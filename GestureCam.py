@@ -1,16 +1,29 @@
 import tensorflow as tf
-import os
 import cv2
 import numpy as np
-import sys
+
+import time
 
 from tfswin.embed import PatchEmbedding
 
+# 讀取參數
+import argparse
+parser = argparse.ArgumentParser(description='Custom model')
+# 批次大小
+parser.add_argument('-m','--model_path', type=str, dest='model_path', help='Model Path')
+# 訓練次數
+parser.add_argument('-e','--camera_id', default=0, type=int, dest='camera_id', help='Camera ID')
+
+# 解析參數(轉換格式)
+args = parser.parse_args()
+args = vars(args)
+
+# 將參數帶入變數
+model_path = args['model_path']
+camera_id = args['camera_id']
 
 image_size = [224, 224]
 keypoints = 21
-# 要載入的模型
-model_name = 'weights\custom_model_v2.8_Frei_vTouch.h5'
 
 actions = np.array(['open', 'fist', 'one', 'two', 'three', 'four', 'six','eight', 'nine', 'ok', 'check', 'like', 'middel', 'yo'])
 
@@ -19,7 +32,7 @@ if len(physical_devices) > 0:
     tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
 # 載入模型和權重
-custom_model = tf.keras.models.load_model(model_name, custom_objects={"TFSwin>PatchEmbedding": PatchEmbedding}, compile=False)
+custom_model = tf.keras.models.load_model(model_path, custom_objects={"TFSwin>PatchEmbedding": PatchEmbedding}, compile=False)
 print(custom_model.summary())
 
 custom_model.summary()
@@ -79,7 +92,7 @@ def show_result(eval_image, model_outputs):
 
 
 # 取得相機
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(camera_id)
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -87,6 +100,8 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 # 讀取畫面
 while cap.isOpened(): # 不要使用 while true
+
+    start_time = time.time()
 
     ret, frame = cap.read()
     # ret 为 True 或 False，代表有没有读到图片
@@ -121,6 +136,11 @@ while cap.isOpened(): # 不要使用 while true
 
         # cv2.rectangle(影像, 頂點座標, 對向頂點座標, 顏色, 線條寬度)
         cv2.rectangle(frame, (208, 128), (432, 352), (255, 0, 0), 3)
+
+        end_time = time.time()
+        time_cost = end_time - start_time
+        fps = 60/time_cost
+        cv2.putText(frame, 'FPS: ' + str(round(fps,3)), (30,30), cv2.FONT_HERSHEY_DUPLEX, 12, (255,255,255), 3)
             
         # 顯示圖片
         cv2.imshow('Camera view', frame)
