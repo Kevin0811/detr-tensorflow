@@ -6,6 +6,8 @@ import datetime
 from detr_tf.loss.loss import new_get_losses
 from detr_tf.data.tfcsv import load_vtouch_dataset
 
+from tfswin.embed import PatchEmbedding
+
 # 命名
 # crds = position = keypoints = pos
 # aux = mask
@@ -64,7 +66,7 @@ image_input = tf.keras.Input((image_size[0], image_size[1], 3))
 
 # 骨幹層
 if pretrained_model_path is not None: # 讀取預訓練權重 [new in v3.4]
-    pretrained_model = tf.keras.models.load_model(pretrained_model_path, compile=False)
+    pretrained_model = tf.keras.models.load_model(pretrained_model_path, custom_objects={"TFSwin>PatchEmbedding": PatchEmbedding}, compile=False)
 
     layer_name = [layer.name for layer in pretrained_model.layers]
 
