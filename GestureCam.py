@@ -139,8 +139,8 @@ while cap.isOpened(): # 不要使用 while true
 
         end_time = time.time()
         time_cost = end_time - start_time
-        fps = 60/time_cost
-        cv2.putText(frame, 'FPS: ' + str(round(fps,3)), (30,30), cv2.FONT_HERSHEY_DUPLEX, 12, (255,255,255), 3)
+        fps = 1/time_cost
+        cv2.putText(frame, 'FPS: ' + str(round(fps ,1)), (30,50), cv2.FONT_HERSHEY_DUPLEX, 1, (255,255,255), 1, cv2.LINE_AA)
             
         # 顯示圖片
         cv2.imshow('Camera view', frame)
